@@ -116,9 +116,10 @@ The pieces, each of them an ordinary buffer:
   or unstages a file, a hunk or a whole section, `c c` / `c a` commit or
   amend through a floating message (`:write` commits, `:quit` cancels),
   `p` / `P` pull and push. Nothing git-related ever blocks the editor.
-- **Welcome page.** Started without a file, quin shows the logo and the five
+- **Welcome page.** Started without a file, quin shows the logo and the ten
   most recent entries: directories moved into with `:cd` and files opened by
   name. `ret` opens one; starting to type swaps the page for a scratch buffer.
+  The page does not scroll.
 
 Long lines scroll sideways unless `:wrap` is on (or `wrap = true` in the
 config), which folds them at the frame edge, breaking at spaces. Scroll jumps

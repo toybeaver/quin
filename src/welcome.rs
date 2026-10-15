@@ -16,7 +16,7 @@ pub const LOGO_RGBA: &[u8] = include_bytes!("../assets/icon/icon-96.rgba");
 pub const LOGO_SIZE: usize = 96;
 
 /// How many recent entries the welcome buffer lists.
-const SHOWN: usize = 5;
+const SHOWN: usize = 10;
 /// How many are remembered on disk.
 const KEPT: usize = 50;
 

@@ -103,8 +103,9 @@ window, with buffers like neovim". Nothing more.
   `GIT_KEYS` and are tried before the normal keymap.
 - Default font: the embedded Iosevka.
 - Starting without a file shows the welcome buffer (`welcome.rs`): logo,
-  greeting, five recent entries kept in `<config dir>/recent`; `ret` opens,
-  insert swaps it for a scratch buffer. Keep it a plain buffer.
+  greeting, ten recent entries kept in `<config dir>/recent`; `ret` opens,
+  insert swaps it for a scratch buffer. Keep it a plain buffer. It never
+  scrolls (`draw_view` pins it to the top, the wheel is ignored).
 - `p`/`P` paste like vim. In normal mode they insert after/before the
   selection without replacing it (whole lines go below/above the line). In
   select mode they replace the selection like vim's visual-mode paste: `p`

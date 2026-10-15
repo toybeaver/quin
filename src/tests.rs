@@ -1131,3 +1131,41 @@ fn cursor_rides_with_the_text_while_the_view_slides() {
     draw_frame(&mut ed, font);
     assert!(ed.view().cursor_anim.is_some());
 }
+
+#[test]
+fn touchpad_scrolling_adds_up_small_steps() {
+    let mut rest = 0.0;
+    // A touchpad swipe: steps of a fifth of a line each scroll every fifth step.
+    let lines: Vec<i32> = (0..10).map(|_| crate::wheel_lines(&mut rest, 0.2)).collect();
+    assert_eq!(lines.iter().sum::<i32>(), 2, "{lines:?}");
+    assert_eq!(lines.iter().filter(|l| **l != 0).count(), 2);
+    // A mouse wheel notch still scrolls three lines at once.
+    assert_eq!(crate::wheel_lines(&mut rest, 3.0), 3);
+    // Turning the other way does not first pay back what was left over.
+    let mut rest = 0.0;
+    assert_eq!(crate::wheel_lines(&mut rest, 0.9), 0);
+    assert_eq!(crate::wheel_lines(&mut rest, -1.2), -1);
+}
+
+#[test]
+fn welcome_page_lists_ten_entries_and_never_scrolls() {
+    let dir = std::env::temp_dir().join(format!("quin-welcome-ten-{}", std::process::id()));
+    for i in 0..12 {
+        std::fs::create_dir_all(dir.join(format!("d{i}"))).unwrap();
+        crate::welcome::remember(&dir.join(format!("d{i}")));
+    }
+    let mut ed = editor_with("");
+    crate::welcome::open(&mut ed);
+    let entries = ed.buffer().welcome.as_ref().unwrap().iter().filter(|e| e.is_some()).count();
+    assert_eq!(entries, 10);
+    // A big font: the page is taller than the 600px test frame, so there is room to scroll.
+    let mut font = draw_frame(&mut ed, crate::render::font::FontSet::builtin(40.0));
+    for sequence in ["C-d", "C-d C-d", "G", "C-e C-e C-e", "z t", "g g C-f"] {
+        keys(&mut ed, sequence);
+        font = draw_frame(&mut ed, font);
+        let view = ed.view();
+        assert_eq!((view.scroll_line, view.scroll_col), (0, 0), "after {sequence}");
+        assert!(view.anim.is_none(), "no slide after {sequence}");
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}

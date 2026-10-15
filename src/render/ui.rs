@@ -187,8 +187,15 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
     // Soft wrap: lines fold into visual rows that fit the frame.
     let wrap = if ed.config.wrap { Some(text_rect_width(rect, gutter)) } else { None };
 
+    // The welcome page never scrolls, whatever moved the cursor or the view.
+    let is_welcome = ed.buffers[&buffer_id].welcome.is_some();
     {
         let view = ed.views.get_mut(&view_id).expect("view");
+        if is_welcome {
+            view.scroll_line = 0;
+            view.scroll_col = 0;
+            view.anim = None;
+        }
         view.rows = (rect.h as f32 / cell_h).floor().max(1.0) as usize;
         view.cols = (text_rect.w as f32 / cell_w).floor().max(1.0) as usize;
     }
@@ -220,7 +227,7 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
         let view = &ed.views[&view_id];
         let cursor_line = ed.buffers[&buffer_id].line_of(view.cursor());
         let shown = layouts.iter().filter(|l| l.y + l.layout.height <= text_rect.h as f32).count();
-        if focused && cursor_line >= view.scroll_line + shown.max(1) && view.scroll_line < cursor_line {
+        if focused && !is_welcome && cursor_line >= view.scroll_line + shown.max(1) && view.scroll_line < cursor_line {
             ed.views.get_mut(&view_id).expect("view").scroll_line += 1;
             continue;
         }

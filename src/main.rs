@@ -326,6 +326,8 @@ struct App {
     term_press: Option<(frame::ViewId, (i32, i32))>,
     scale: f64,
     close_requested: bool,
+    /// Part of a line scrolled but not applied yet (touchpads scroll by pixels).
+    scroll_rest: f32,
     /// When the next paced frame is due: an animation runs, or background
     /// work (terminal output, search results) changed something.
     next_frame: Option<std::time::Instant>,
@@ -358,6 +360,7 @@ impl App {
             term_press: None,
             scale: 1.0,
             close_requested: false,
+            scroll_rest: 0.0,
             next_frame: None,
             last_frame: std::time::Instant::now(),
             title: String::new(),
@@ -574,6 +577,10 @@ impl App {
             return;
         }
         let Some((view_id, _)) = self.frame_at(x, y) else { return };
+        // The welcome page does not scroll.
+        if self.editor.buffers[&self.editor.views[&view_id].buffer].welcome.is_some() {
+            return;
+        }
         // In terminal mode: an application that asked for the mouse gets wheel
         // events, a full-screen one without it gets arrow keys, a shell scrolls
         // its scrollback.
@@ -696,10 +703,11 @@ impl ApplicationHandler<()> for App {
                 self.after_input(event_loop);
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let lines = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => (y * 3.0).round() as i32,
-                    MouseScrollDelta::PixelDelta(p) => (p.y as f32 / self.font.cell_h).round() as i32,
+                let amount = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y * 3.0,
+                    MouseScrollDelta::PixelDelta(p) => p.y as f32 / self.font.cell_h,
                 };
+                let lines = wheel_lines(&mut self.scroll_rest, amount);
                 if lines != 0 {
                     self.scroll(lines);
                     self.request_redraw();
@@ -709,6 +717,20 @@ impl ApplicationHandler<()> for App {
             _ => {}
         }
     }
+}
+
+/// Whole lines to scroll for a wheel or touchpad event of `amount` lines.
+/// Touchpads send many events of a few pixels each: the fractions add up in
+/// `rest` until they make a line, instead of each rounding down to nothing.
+/// Turning the other way drops what was left over.
+pub fn wheel_lines(rest: &mut f32, amount: f32) -> i32 {
+    if *rest != 0.0 && rest.signum() != amount.signum() {
+        *rest = 0.0;
+    }
+    *rest += amount;
+    let lines = rest.trunc();
+    *rest -= lines;
+    lines as i32
 }
 
 /// Convert a winit key event to the editor's `Key`.
