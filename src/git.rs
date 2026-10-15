@@ -16,8 +16,9 @@ use crate::terminal::WakeFn;
 
 /// How often the status is re-read while the editor is in use.
 const REFRESH_EVERY: Duration = Duration::from_secs(3);
-/// How often the upstream is fetched to count commits ahead and behind.
-const FETCH_EVERY: Duration = Duration::from_secs(10);
+/// How often the upstream is fetched to count commits ahead and behind
+/// (every git action done from the editor fetches right away as well).
+const FETCH_EVERY: Duration = Duration::from_secs(600);
 /// A fetch taking longer than this is given up on (the thread is left to finish).
 const FETCH_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -108,9 +109,9 @@ pub struct Sync {
 }
 
 impl Sync {
-    /// `N↑ M↓` for the status line.
-    pub fn label(&self) -> String {
-        format!("{}↑ {}↓", self.ahead, self.behind)
+    /// `N↑ M↓` for the status line; nothing when in step with the upstream.
+    pub fn label(&self) -> Option<String> {
+        (self.ahead > 0 || self.behind > 0).then(|| format!("{}↑ {}↓", self.ahead, self.behind))
     }
 }
 
@@ -942,7 +943,8 @@ mod tests {
     fn parses_ahead_behind_counts() {
         assert_eq!(parse_counts("3\t1\n"), Some(Sync { ahead: 1, behind: 3 }));
         assert_eq!(parse_counts(""), None);
-        assert_eq!(Sync { ahead: 2, behind: 0 }.label(), "2↑ 0↓");
+        assert_eq!(Sync { ahead: 2, behind: 0 }.label().as_deref(), Some("2↑ 0↓"));
+        assert_eq!(Sync { ahead: 0, behind: 0 }.label(), None, "in step: no block");
     }
 
     #[test]

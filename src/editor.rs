@@ -663,8 +663,9 @@ impl Editor {
         !exited.is_empty()
     }
 
-    /// Refresh the git state when due (`now` forces it). The tree re-renders
-    /// its markers when something changed. Returns true on a change.
+    /// Refresh the git state when due (`now` forces it, and fetches the
+    /// upstream too). The tree re-renders its markers when something changed.
+    /// Returns true when something to draw changed.
     pub fn poll_git(&mut self, now: bool) -> bool {
         let wake = self.wake.clone().unwrap_or_else(|| std::sync::Arc::new(|| {}));
         // A finished pull or push changes the status: query again right away.
@@ -677,7 +678,8 @@ impl Editor {
         if changed && self.git_buffer.is_some() {
             crate::git::render_status(self);
         }
-        changed || synced
+        // A finished pull or push takes its spinner with it: that needs a redraw too.
+        changed || synced || finished
     }
 
     /// Any view still sliding its scroll or cursor (the window keeps redrawing).

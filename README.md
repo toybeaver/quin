@@ -265,9 +265,11 @@ program without mouse support gets the wheel as arrow keys.
 
 When the working directory is inside a git repository, the status line shows
 the branch next to the mode, with `*` when there are uncommitted changes, and
-beside it `N↑ M↓`: commits to push and to pull, from a background `git fetch`
-every ten seconds (the block turns into an arrow and a spinner while a pull
-or push runs). A fetch that fails or stalls only leaves the counts stale.
+beside it `N↑ M↓` whenever there are commits to push or to pull. The counts
+come from a background `git fetch` every ten minutes and after every git
+action done from the editor; the block turns into an arrow and a spinner
+while a pull or push runs. A fetch that fails or stalls only leaves the
+counts stale.
 The file tree colours modified files orange and new files green, and prefixes
 directories with changes anywhere inside them (including deleted files) with
 `* `. The state is read by running `git` in the background every few seconds

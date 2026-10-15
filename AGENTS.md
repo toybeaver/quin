@@ -89,8 +89,8 @@ window, with buffers like neovim". Nothing more.
   `c c` / `c a` commit or amend through a floating commit-message frame
   (`Editor::float`; `:write` commits with `git commit -F -`, `:quit` cancels),
   `p` / `P` pull and push on a background thread (`git::run_remote`), and a
-  `git fetch` every 10 s on its own thread feeds an ahead/behind block in the
-  status line. Nothing git-related may ever block or break the editor: every
+  `git fetch` every 10 minutes (and after each git action) on its own thread
+  feeds an ahead/behind block in the status line, shown only when non-zero. Nothing git-related may ever block or break the editor: every
   call runs off the UI thread with prompts disabled, and failures just mean
   stale information.
   `space` stays the leader key everywhere. The git buffer's keys live in
