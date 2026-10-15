@@ -34,6 +34,8 @@ pub struct Tree {
     /// `-` moved the root above the working directory: keep it there until
     /// the directory changes or the tree is reopened.
     browsing: bool,
+    /// `.` toggles dot-files and dot-directories; they start hidden.
+    show_hidden: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -62,6 +64,7 @@ pub fn toggle(ed: &mut Editor) {
                 return_view: None,
                 pending_deletes: Vec::new(),
                 browsing: false,
+                show_hidden: false,
             });
             render(ed);
             id
@@ -87,6 +90,15 @@ pub fn go_to_parent(ed: &mut Editor) {
     render(ed);
 }
 
+/// `.`: show or hide entries whose name starts with a dot.
+pub fn toggle_hidden(ed: &mut Editor) {
+    let Some(tree) = &mut ed.tree else { return };
+    tree.show_hidden = !tree.show_hidden;
+    let shown = tree.show_hidden;
+    render(ed);
+    ed.set_message(if shown { "hidden files shown" } else { "hidden files hidden" });
+}
+
 /// The frame of the current tab showing the tree, if any.
 fn tree_view(ed: &Editor) -> Option<ViewId> {
     let tree = ed.tree.as_ref()?;
@@ -109,7 +121,7 @@ pub fn render(ed: &mut Editor) {
         tree.expanded.clear();
     }
     let mut entries = Vec::new();
-    collect(&tree.root, 0, &tree.expanded, &mut entries);
+    collect(&tree.root, 0, &tree.expanded, tree.show_hidden, &mut entries);
     let git = ed.git.state.as_ref();
     let mut text = String::new();
     for entry in &entries {
@@ -138,15 +150,15 @@ pub fn render(ed: &mut Editor) {
     }
 }
 
-fn collect(dir: &Path, depth: usize, expanded: &HashSet<PathBuf>, out: &mut Vec<Entry>) {
+fn collect(dir: &Path, depth: usize, expanded: &HashSet<PathBuf>, show_hidden: bool, out: &mut Vec<Entry>) {
     for (name, is_dir) in crate::files::list_dir(dir) {
-        if name == ".git/" {
+        if !show_hidden && name.starts_with('.') {
             continue;
         }
         let path = dir.join(name.trim_end_matches('/'));
         out.push(Entry { path: path.clone(), is_dir, depth });
         if is_dir && expanded.contains(&path) {
-            collect(&path, depth + 1, expanded, out);
+            collect(&path, depth + 1, expanded, show_hidden, out);
         }
     }
 }
@@ -333,7 +345,35 @@ fn diff(old: &[Entry], new: &[Entry]) -> Result<Changes, String> {
     }
     changes.deletes = missing.iter().map(|e| e.path.clone()).collect();
     changes.creates = added.iter().map(|e| (*e).clone()).collect();
+    if let Some((taker, victim)) = takes_over_children(old, new, &changes.creates) {
+        return Err(format!(
+            "`{}/` would take the entries of `{}/`: indent it to put it inside, or fold `{}/` first",
+            file_name(&taker),
+            file_name(&victim),
+            file_name(&victim)
+        ));
+    }
     Ok(changes)
+}
+
+/// The classic slip: a new directory line typed right below an unfolded
+/// directory, at the same depth, so the children listed under it now read as
+/// the new directory's. Returns (new directory, directory it would empty).
+fn takes_over_children(old: &[Entry], new: &[Entry], creates: &[Entry]) -> Option<(PathBuf, PathBuf)> {
+    let children = |entries: &[Entry], dir: &Path| entries.iter().any(|e| e.path.parent() == Some(dir));
+    for created in creates.iter().filter(|e| e.is_dir) {
+        let index = new.iter().position(|e| e.path == created.path)?;
+        let Some(previous) = index.checked_sub(1).map(|i| &new[i]) else { continue };
+        if previous.is_dir
+            && previous.depth == created.depth
+            && children(old, &previous.path)
+            && !children(new, &previous.path)
+            && children(new, &created.path)
+        {
+            return Some((created.path.clone(), previous.path.clone()));
+        }
+    }
+    None
 }
 
 /// How alike two names are, ignoring the extension: shared prefix and suffix
@@ -480,5 +520,24 @@ mod tests {
         // Deleting a directory line deletes it once, not its children separately.
         let new = vec![entry("/r/a.rs", false, 0), entry("/r/b.rs", false, 0)];
         assert_eq!(diff(&old, &new).unwrap().deletes, vec![PathBuf::from("/r/d/")]);
+        // A new directory typed under an unfolded one at the same depth would
+        // swallow its children: refuse instead of moving everything.
+        let new = vec![
+            entry("/r/a.rs", false, 0),
+            entry("/r/b.rs", false, 0),
+            entry("/r/d/", true, 0),
+            entry("/r/t/", true, 0),
+            entry("/r/t/x.rs", false, 1),
+        ];
+        assert!(diff(&old, &new).unwrap_err().contains("`t/` would take the entries of `d/`"));
+        // Listing it after the children keeps it an ordinary empty sibling.
+        let new = vec![
+            entry("/r/a.rs", false, 0),
+            entry("/r/b.rs", false, 0),
+            entry("/r/d/", true, 0),
+            entry("/r/d/x.rs", false, 1),
+            entry("/r/t/", true, 0),
+        ];
+        assert_eq!(diff(&old, &new).unwrap().creates, vec![entry("/r/t/", true, 0)]);
     }
 }

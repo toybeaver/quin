@@ -100,9 +100,11 @@ window, with buffers like neovim". Nothing more.
 - Starting without a file shows the welcome buffer (`welcome.rs`): logo,
   greeting, five recent entries kept in `<config dir>/recent`; `ret` opens,
   insert swaps it for a scratch buffer. Keep it a plain buffer.
-- `p`/`P` are vim's visual-mode paste: they replace the selection; `p` puts
-  the replaced text on the clipboard, `P` does not. `r` replaces the character
-  under the cursor; `R` enters replace mode.
+- `p`/`P` paste like vim. In normal mode they insert after/before the
+  selection without replacing it (whole lines go below/above the line). In
+  select mode they replace the selection like vim's visual-mode paste: `p`
+  puts the replaced text on the clipboard, `P` does not. `r` replaces the
+  character under the cursor; `R` enters replace mode.
 - Syntax files may also say how to *render* a token (bigger headings,
   concealed markers, replaced bullets, embedded languages), which is how
   Markdown gets a light "rendered" look like Emacs' markdown-mode.

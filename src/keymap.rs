@@ -397,7 +397,8 @@ pub const INSERT_KEYS: &[(&str, &str)] = &[
 ];
 
 /// Bindings of the file tree (`A-e`), on top of normal mode.
-pub const TREE_KEYS: &[(&str, &str)] = &[("ret", "tree_activate"), ("tab", "tree_fold"), ("S-ret", "tree_cd"), ("-", "tree_parent")];
+pub const TREE_KEYS: &[(&str, &str)] =
+    &[("ret", "tree_activate"), ("tab", "tree_fold"), ("S-ret", "tree_cd"), ("-", "tree_parent"), (".", "tree_hidden")];
 
 /// Bindings of the git status buffer (`space l`), on top of normal mode.
 pub const GIT_KEYS: &[(&str, &str)] = &[

@@ -780,7 +780,12 @@ fn open_line(ed: &mut Editor, below: bool) {
     for r in view.selection.iter() {
         let (from, to) = r.span(&buffer.text);
         let line = buffer.line_of(if below { to.saturating_sub(1).max(from) } else { from });
-        let indent = buffer.line_indent(line);
+        let mut indent = buffer.line_indent(line);
+        // In the tree, `o` on an unfolded directory starts the line inside it:
+        // the new entry takes the indentation of the directory's first child.
+        if below && buffer.tree && line + 1 < buffer.line_count() && buffer.line_indent(line + 1).len() > indent.len() {
+            indent = buffer.line_indent(line + 1);
+        }
         let (at, text) =
             if below { (buffer.line_end(line), format!("\n{indent}")) } else { (buffer.line_start(line), format!("{indent}\n")) };
         let cursor = if below { at + text.chars().count() } else { at + indent.chars().count() };
@@ -839,11 +844,12 @@ fn yank(ed: &mut Editor, _ctx: Ctx) {
     ed.set_message(format!("yanked {count} selection{} to the clipboard", if count == 1 { "" } else { "s" }));
 }
 
-/// Vim-style paste: the clipboard replaces each selection. Whole lines on the
-/// clipboard (text ending in a newline) replace whole lines. With `yank_replaced`
-/// the text that was replaced takes the clipboard's place (`p`); `P` leaves the
-/// clipboard alone.
-fn paste_replacing(ed: &mut Editor, ctx: Ctx, yank_replaced: bool) {
+/// Vim-style paste. In normal mode the clipboard goes in next to the
+/// selection without touching it: `p` after it, `P` before it; whole lines on
+/// the clipboard (text ending in a newline) go on the line below or above. In
+/// select mode the clipboard replaces the selection like vim's visual-mode
+/// paste, and `p` (not `P`) puts the replaced text on the clipboard.
+fn paste_with(ed: &mut Editor, ctx: Ctx, after: bool) {
     if ed.buffer().is_terminal() {
         // A terminal buffer: type the clipboard into the shell.
         if let Ok(text) = ed.clipboard.paste()
@@ -859,30 +865,68 @@ fn paste_replacing(ed: &mut Editor, ctx: Ctx, yank_replaced: bool) {
         return;
     }
     let Some(values) = clipboard_values(ed) else { return };
-    if values.iter().all(|v| v.ends_with('\n')) {
-        extend_to_line_bounds(ed);
+    let linewise = values.iter().all(|v| v.ends_with('\n'));
+    if ed.mode == Mode::Select {
+        if linewise {
+            extend_to_line_bounds(ed);
+        }
+        let replaced: Vec<String> = {
+            let (view, buffer) = ed.current();
+            view.selection.iter().map(|r| r.slice(&buffer.text)).collect()
+        };
+        let mut i = 0;
+        replace_each(ed, |_| {
+            let value = values[i % values.len()].repeat(ctx.n());
+            i += 1;
+            value
+        });
+        if after {
+            copy_to_clipboard(ed, replaced);
+        }
+        ed.set_mode(Mode::Normal);
+        return;
     }
-    let replaced: Vec<String> = {
-        let (view, buffer) = ed.current();
-        view.selection.iter().map(|r| r.slice(&buffer.text)).collect()
-    };
-    let mut i = 0;
-    replace_each(ed, |_| {
-        let value = values[i % values.len()].repeat(ctx.n());
-        i += 1;
-        value
-    });
-    if yank_replaced {
-        copy_to_clipboard(ed, replaced);
+    let (view, buffer) = ed.current();
+    let mut tx = Transaction::new();
+    let mut ranges = Vec::new();
+    let mut delta = 0usize;
+    for (i, r) in view.selection.iter().enumerate() {
+        let mut value = values[i % values.len()].repeat(ctx.n());
+        let (from, to) = r.span(&buffer.text);
+        let at = match (linewise, after) {
+            (true, true) => {
+                let line = buffer.line_of(to.saturating_sub(1).max(from));
+                let end = buffer.len_chars();
+                if line + 1 < buffer.line_count() {
+                    buffer.line_start(line + 1)
+                } else {
+                    // Below the last line, which has no newline of its own yet.
+                    if end > 0 && buffer.text.char(end - 1) != '\n' {
+                        value = format!("\n{}", value.strip_suffix('\n').unwrap_or(&value));
+                    }
+                    end
+                }
+            }
+            (true, false) => buffer.line_start(buffer.line_of(from)),
+            (false, true) => to,
+            (false, false) => from,
+        };
+        let len = value.chars().count();
+        let start = at + delta;
+        ranges.push(Range::new(start, start + len.saturating_sub(1)));
+        tx.insert(at, value);
+        delta += len;
     }
+    let primary = view.selection.primary_index();
+    ed.apply(tx, Selection::from_ranges(ranges, primary));
 }
 
 fn paste(ed: &mut Editor, ctx: Ctx) {
-    paste_replacing(ed, ctx, true);
+    paste_with(ed, ctx, true);
 }
 
 fn paste_noyank(ed: &mut Editor, ctx: Ctx) {
-    paste_replacing(ed, ctx, false);
+    paste_with(ed, ctx, false);
 }
 
 fn replace_char(ed: &mut Editor, _ctx: Ctx) {
@@ -1412,6 +1456,10 @@ fn tree_cd(ed: &mut Editor, _ctx: Ctx) {
     crate::tree::cd_under_cursor(ed);
 }
 
+fn tree_hidden(ed: &mut Editor, _ctx: Ctx) {
+    crate::tree::toggle_hidden(ed);
+}
+
 fn git_activate(ed: &mut Editor, _ctx: Ctx) {
     crate::git::activate(ed);
 }
@@ -1528,8 +1576,8 @@ commands! {
     change_selection: "Change the selection (delete and insert)",
     change_selection_noyank: "Change the selection without yanking",
     yank: "Yank the selection to the clipboard",
-    paste: "Replace the selection with the clipboard, yanking what it replaces",
-    paste_noyank: "Replace the selection with the clipboard",
+    paste: "Paste after the selection (whole lines below it); in select mode replace it, yanking what was there",
+    paste_noyank: "Paste before the selection (whole lines above it); in select mode replace it",
     replace_char: "Replace the character under the cursor with a typed one",
     replace_mode: "Replace mode: typing overwrites",
     indent: "Indent the selected lines",
@@ -1585,6 +1633,7 @@ commands! {
     toggle_fold: "Show or hide the diff of the file under the cursor",
     tree_cd: "Make the directory under the cursor (or the file's directory) the working directory",
     tree_parent: "Show the parent directory; the working directory stays",
+    tree_hidden: "Show or hide dot-files and dot-directories",
     git_activate: "Open the file (at the hunk's line) in the preview split on the right",
     git_stage: "Stage the file or hunk under the cursor (unstage it in the staged section)",
     git_close_preview: "Close the preview split",

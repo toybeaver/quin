@@ -62,7 +62,9 @@ tested (`wait` in the key list lets a shell or a search finish).
 quin is modal, like Helix (and Kakoune): **selection first, then action**.
 Every cursor is a one-character selection; motions extend or replace the
 selection and `d`, `c`, `y` act on it. Yank, delete and paste always go
-through the system clipboard; there are no registers.
+through the system clipboard; there are no registers. `p` and `P` paste like
+vim: after or before the selection in normal mode (whole lines go below or
+above), replacing the selection in select mode.
 
 | Mode | How to get there | What keys do |
 |---|---|---|
@@ -102,10 +104,10 @@ The pieces, each of them an ordinary buffer:
   selects on drag. When the shell exits the frame closes.
 - **File tree.** `A-e` or `:tree` toggles a sidebar in the spirit of oil.nvim:
   `ret` opens a file or folds a directory, `S-ret` changes the working
-  directory, `-` shows the parent, and editing the text then `:write`
-  renames, creates (a trailing `/` makes a directory), moves and deletes
-  entries; deletes need a second `:write`. Git colours changed and new files
-  and marks directories with changes inside.
+  directory, `-` shows the parent, `.` shows or hides dot-files, and editing
+  the text then `:write` renames, creates (a trailing `/` makes a directory),
+  moves and deletes entries; deletes need a second `:write`. Git colours
+  changed and new files and marks directories with changes inside.
 - **Git.** The status line shows the branch (`*` when dirty) and `N↑ M↓`
   when there is something to push or pull, kept fresh in the background.
   `space l` opens a status buffer in its own tab: `ret` opens a file in a

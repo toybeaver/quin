@@ -313,9 +313,11 @@ directory, in the spirit of oil.nvim. Files open in the frame the tree was
 opened from; the tree stays. Editing the text and then `:write` changes the
 file system: a changed name renames, a new line creates (a trailing `/` makes
 a directory, two spaces of indentation per level nest it), a line moved under
-another directory moves the entry, a removed line deletes it. Deletes are
-announced first and applied by a second `:write`. Git marks: changed files
-orange, new files green, `* ` before directories with changes inside.
+another directory moves the entry, a removed line deletes it. `o` on an
+unfolded directory starts the line inside it. Deletes are announced first and
+applied by a second `:write`. Dot-files start hidden;
+`.` shows and hides them. Git marks: changed files orange, new files green,
+`* ` before directories with changes inside.
 
 ";
 

@@ -85,24 +85,41 @@ fn delete_yank_and_paste_whole_lines() {
     keys(&mut ed, "g g x y");
     assert_eq!(ed.clipboard.paste().unwrap(), "one\n");
     keys(&mut ed, "i text:zero ret esc g g x p");
-    assert_eq!(text(&ed), "one\none\n", "linewise paste replaces the whole line under the cursor");
+    assert_eq!(text(&ed), "zero\none\none\n", "in normal mode a linewise p goes below the line, replacing nothing");
+    assert_eq!(selected(&ed), "one\n", "the pasted line is selected");
+    assert_eq!(ed.clipboard.paste().unwrap(), "one\n", "normal-mode paste leaves the clipboard alone");
+    keys(&mut ed, "g g x P");
+    assert_eq!(text(&ed), "one\nzero\none\none\n", "P goes above the line");
+    // In select mode the paste replaces the selected lines, like vim's visual mode.
+    keys(&mut ed, "j x v p");
+    assert_eq!(text(&ed), "one\none\none\none\n", "select-mode p replaces the whole line");
     assert_eq!(ed.clipboard.paste().unwrap(), "zero\n", "p yanks what it replaced");
-    keys(&mut ed, "j x P");
-    assert_eq!(text(&ed), "one\nzero\n");
+    assert_eq!(ed.mode, Mode::Normal, "paste leaves select mode");
+    keys(&mut ed, "j x v P");
+    assert_eq!(text(&ed), "one\none\nzero\none\n");
     assert_eq!(ed.clipboard.paste().unwrap(), "zero\n", "P leaves the clipboard alone");
+    // Below the last line, which has no newline, the paste starts one.
+    let mut ed = editor_with("a\nb");
+    keys(&mut ed, "x y j x p");
+    assert_eq!(text(&ed), "a\nb\na");
 }
 
 #[test]
-fn paste_replaces_the_selection() {
+fn paste_inserts_in_normal_mode_and_replaces_in_select_mode() {
     let mut ed = editor_with("alpha beta\n");
     keys(&mut ed, "e y / text:beta ret p");
-    assert_eq!(text(&ed), "alpha alpha\n");
+    assert_eq!(text(&ed), "alpha betaalpha\n", "p pastes after the selection");
+    assert_eq!(selected(&ed), "alpha", "the pasted text is selected");
+    assert_eq!(ed.clipboard.paste().unwrap(), "alpha", "nothing was replaced, so nothing was yanked");
+    keys(&mut ed, "u g g / text:beta ret P");
+    assert_eq!(text(&ed), "alpha alphabeta\n", "P pastes before the selection");
+    keys(&mut ed, "u g g / text:beta ret v p");
+    assert_eq!(text(&ed), "alpha alpha\n", "in select mode p replaces the selection");
     assert_eq!(ed.clipboard.paste().unwrap(), "beta", "the replaced word is now on the clipboard");
-    keys(&mut ed, "g h e p");
-    assert_eq!(text(&ed), "beta alpha\n", "p again swaps them back");
-    keys(&mut ed, "g h e P");
-    assert_eq!(text(&ed), "alpha alpha\n");
-    assert_eq!(ed.clipboard.paste().unwrap(), "alpha");
+    assert_eq!(ed.mode, Mode::Normal);
+    keys(&mut ed, "g h e v P");
+    assert_eq!(text(&ed), "beta alpha\n", "P replaces too, without yanking");
+    assert_eq!(ed.clipboard.paste().unwrap(), "beta");
 }
 
 #[test]
@@ -111,9 +128,9 @@ fn yank_with_several_cursors_pastes_one_piece_per_cursor() {
     keys(&mut ed, "C C e y");
     assert_eq!(ed.clipboard.paste().unwrap(), "a1\nb2\nc3");
     keys(&mut ed, ", g g l P");
-    assert_eq!(text(&ed), "aa1\nb2\nc3\nb2\nc3\n", "a single cursor pastes the whole clipboard");
+    assert_eq!(text(&ed), "aa1\nb2\nc31\nb2\nc3\n", "a single cursor pastes the whole clipboard");
     keys(&mut ed, "u g g l C C P");
-    assert_eq!(text(&ed), "aa1\nbb2\ncc3\n", "three cursors get their own piece again");
+    assert_eq!(text(&ed), "aa11\nbb22\ncc33\n", "three cursors get their own piece again");
 }
 
 #[test]
@@ -459,11 +476,17 @@ fn tree_sidebar_opens_folds_and_edits_files() {
     std::fs::create_dir_all(dir.join("src")).unwrap();
     std::fs::write(dir.join("src/lib.rs"), "lib").unwrap();
     std::fs::write(dir.join("notes.md"), "notes").unwrap();
+    std::fs::write(dir.join(".env"), "secret").unwrap();
+    std::fs::create_dir_all(dir.join(".git")).unwrap();
     let mut ed = editor_with("");
     keys(&mut ed, &format!(": text:cd space text:{} ret A-e", dir.display()));
     assert_eq!(ed.root().leaves().len(), 2);
     assert!(ed.buffer().tree);
-    assert_eq!(text(&ed), "src/\nnotes.md\n");
+    assert_eq!(text(&ed), "src/\nnotes.md\n", "dot-files start hidden");
+    keys(&mut ed, ".");
+    assert_eq!(text(&ed), ".git/\nsrc/\n.env\nnotes.md\n", ". shows every dot entry, .git included");
+    keys(&mut ed, ".");
+    assert_eq!(text(&ed), "src/\nnotes.md\n", ". hides them again");
     keys(&mut ed, "ret");
     assert_eq!(text(&ed), "src/\n  lib.rs\nnotes.md\n", "ret on a directory expands it");
     keys(&mut ed, "tab");
@@ -516,6 +539,18 @@ fn tree_sidebar_opens_folds_and_edits_files() {
     assert!(dir.join("new.txt").exists(), "the first write only announces the deletion");
     keys(&mut ed, ": text:write ret");
     assert!(!dir.join("new.txt").exists(), "the second write deletes");
+    // `o` on an unfolded directory starts the new line inside it, so a new
+    // directory lands in src/ and src/'s files stay where they are.
+    keys(&mut ed, "g g / text:src/ ret");
+    assert!(text(&ed).contains("src/\n  lib.rs\n"), "{}", text(&ed));
+    keys(&mut ed, "o text:test/ esc : text:write ret");
+    assert!(dir.join("src/test").is_dir(), "{:?}", ed.message);
+    assert!(dir.join("src/lib.rs").is_file() && !dir.join("test").exists());
+    assert!(text(&ed).contains("src/\n  test/\n  lib.rs\n"), "{}", text(&ed));
+    // Typed unindented between src/ and its children, the write is refused.
+    keys(&mut ed, "g g / text:src/ ret A ret text:other/ esc : text:write ret");
+    assert!(!dir.join("other").exists() && dir.join("src/lib.rs").is_file(), "{:?}", ed.message);
+    assert!(format!("{:?}", ed.message).contains("would take the entries of `src/`"), "{:?}", ed.message);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
