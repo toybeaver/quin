@@ -156,7 +156,10 @@ fn draw_tab_bar(ed: &mut Editor, ui: &mut Ui, rect: Rect) {
 
 /// Width of the line-number gutter in pixels.
 fn gutter_width(ed: &Editor, buffer: &Buffer, cell_w: f32) -> i32 {
-    if !ed.config.line_numbers || buffer.is_terminal() || buffer.welcome.is_some() {
+    if buffer.is_terminal() || buffer.tree {
+        return cell_w as i32;
+    }
+    if !ed.config.line_numbers || buffer.welcome.is_some() {
         return (cell_w * 2.0) as i32;
     }
     let digits = buffer.line_count().max(1).to_string().len().max(3);
@@ -166,7 +169,7 @@ fn gutter_width(ed: &Editor, buffer: &Buffer, cell_w: f32) -> i32 {
 fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused: bool) {
     let buffer_id = ed.views[&view_id].buffer;
     let is_terminal = ed.buffers[&buffer_id].is_terminal();
-    let show_numbers = ed.config.line_numbers && ed.buffers[&buffer_id].welcome.is_none();
+    let show_numbers = ed.config.line_numbers && ed.buffers[&buffer_id].welcome.is_none() && !ed.buffers[&buffer_id].tree;
     let cell_w = ui.font.cell_w;
     let cell_h = ui.font.cell_h;
     let gutter = gutter_width(ed, &ed.buffers[&buffer_id], cell_w);
@@ -179,6 +182,8 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
     }
     let rect = Rect::new(rect.x, rect.y + offset, rect.w, (rect.h - offset).max(0));
     let text_rect = Rect::new(rect.x + gutter, rect.y, (rect.w - gutter).max(0), rect.h);
+    // Soft wrap: lines fold into visual rows that fit the frame.
+    let wrap = if ed.config.wrap { Some(text_rect_width(rect, gutter)) } else { None };
 
     {
         let view = ed.views.get_mut(&view_id).expect("view");
@@ -208,7 +213,7 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
     // Lay out visible lines; scroll down if the cursor line does not fit.
     let mut layouts = loop {
         let first = ed.views[&view_id].scroll_line;
-        let layouts = layout_visible_lines(ed, ui.font, view_id, first, text_rect.h as f32, base, tab_width);
+        let layouts = layout_visible_lines(ed, ui.font, view_id, first, text_rect.h as f32, base, tab_width, wrap);
         let view = &ed.views[&view_id];
         let cursor_line = ed.buffers[&buffer_id].line_of(view.cursor());
         let shown = layouts.iter().filter(|l| l.y + l.layout.height <= text_rect.h as f32).count();
@@ -221,7 +226,7 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
     // While a scroll slides, draw from where the view appears to be instead.
     let (first_line, slide) = animated_scroll(ed, view_id, cell_h);
     if first_line != ed.views[&view_id].scroll_line || slide != 0 {
-        layouts = layout_visible_lines(ed, ui.font, view_id, first_line, text_rect.h as f32 + cell_h, base, tab_width);
+        layouts = layout_visible_lines(ed, ui.font, view_id, first_line, text_rect.h as f32 + cell_h, base, tab_width, wrap);
     }
     // Git: hunk headers in the status buffer stand out; the preview split
     // colours added, modified and deleted lines of the file against HEAD.
@@ -295,7 +300,7 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
             let label = number.to_string();
             let color = if *line == cursor_line { linenr_current } else { linenr };
             let x = rect.x + gutter - ui.text_width(&label) - cell_w as i32;
-            let baseline_offset = (layout.height - cell_h).max(0.0) as i32;
+            let baseline_offset = (layout.row_height - cell_h).max(0.0) as i32;
             ui.text(x, y_px + baseline_offset, &label, color, false);
         }
 
@@ -308,17 +313,21 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
             ui.painter.fill_rect(Rect::new(text_rect.x, y_px, text_rect.w, layout.height as i32), bg);
         }
 
+        // A range of characters filled on every visual row it touches.
+        let row_h = layout.row_height as i32;
+        let fill_chars = |ui: &mut Ui, from: usize, to: usize, color: Color| {
+            for (row, x0, x1) in layout.row_segments(from, to, cell_w) {
+                let x = (origin_x + x0) as i32;
+                ui.painter.fill_rect(Rect::new(x, y_px + row as i32 * row_h, (x1 - x0).max(0.0) as i32, row_h), color);
+            }
+        };
+
         // Git preview: the exact changed span of a modified line, and a red
         // marker where lines were deleted.
         if let Some(marks) = &marks {
             if let Some(change) = marks.lines.get(line) {
                 for (from, to) in &change.spans {
-                    let x0 = origin_x + layout.x_of(*from);
-                    let x1 = origin_x + layout.x_of(*to);
-                    ui.painter.fill_rect(
-                        Rect::new(x0 as i32, y_px, (x1 - x0).max(0.0) as i32, layout.height as i32),
-                        theme_bg.mix(modified_color, 0.55),
-                    );
+                    fill_chars(ui, *from, *to, theme_bg.mix(modified_color, 0.55));
                 }
             }
             if marks.deleted_before.contains(line) {
@@ -339,26 +348,29 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
             }
             let start = from.saturating_sub(*line_start);
             let end = (to - line_start).min(line_len + 1);
-            let x0 = origin_x + layout.x_of(start);
-            let x1 = if end > line_len { origin_x + layout.width + cell_w } else { origin_x + layout.x_of(end) };
-            ui.painter.fill_rect(Rect::new(x0 as i32, y_px, (x1 - x0).max(0.0) as i32, layout.height as i32), color);
+            fill_chars(ui, start, end, color);
         }
 
-        // Text.
-        let baseline = y_px as f32 + layout.ascent;
+        // Text, row by row.
+        let mut row = 0;
         for cell in &layout.cells {
             if cell.hidden {
                 continue;
             }
-            let x = origin_x + cell.x;
+            while row + 1 < layout.rows.len() && cell.char_index >= layout.rows[row + 1].0 {
+                row += 1;
+            }
+            let x = origin_x + cell.x - layout.rows[row].1;
             if x + cell.width < text_rect.x as f32 || x > text_rect.right() as f32 {
                 continue;
             }
+            let y_row = y_px + row as i32 * row_h;
+            let baseline = y_row as f32 + layout.ascent;
             if let Some(bg) = cell.style.bg {
-                ui.painter.fill_rect(Rect::new(x as i32, y_px, cell.width.ceil() as i32, layout.height as i32), bg);
+                ui.painter.fill_rect(Rect::new(x as i32, y_row, cell.width.ceil() as i32, row_h), bg);
             }
             if Some(line_start + cell.char_index) == bracket_match {
-                ui.painter.fill_rect(Rect::new(x as i32, y_px, cell.width as i32, layout.height as i32), bracket_color);
+                ui.painter.fill_rect(Rect::new(x as i32, y_row, cell.width as i32, row_h), bracket_color);
             }
             ui.cell_glyph(x, baseline, cell, cell.style.fg);
             if cell.style.underline {
@@ -380,8 +392,9 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
                 continue;
             }
             let col = head - line_start;
-            let mut x = origin_x + layout.x_of(col);
-            let mut y = y_px;
+            let (cursor_row, x_in_row) = layout.pos_of(col);
+            let mut x = origin_x + x_in_row;
+            let mut y = y_px + cursor_row as i32 * row_h;
             let color = if !focused {
                 inactive_cursor
             } else if i == selection.primary_index() {
@@ -401,16 +414,16 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
                 y = rect.y + shown.1.round() as i32;
             }
             if mode == Mode::Insert && focused {
-                ui.painter.fill_rect(Rect::new(x as i32, y, 2, layout.height as i32), color);
+                ui.painter.fill_rect(Rect::new(x as i32, y, 2, row_h), color);
             } else {
                 let w = layout.width_of(col, cell_w);
-                let cursor_rect = Rect::new(x as i32, y, w as i32, layout.height as i32);
+                let cursor_rect = Rect::new(x as i32, y, w as i32, row_h);
                 if focused {
                     ui.painter.fill_rect(cursor_rect, color);
                     // Redraw the character in the background color so it stays readable.
                     if arrived && let Some(cell) = layout.cells.iter().find(|c| c.char_index == col && !c.hidden) {
                         let fg = if color.is_dark() { Color::WHITE } else { ed.theme.ui("ui.background", Color::BLACK) };
-                        ui.cell_glyph(x, baseline, cell, fg);
+                        ui.cell_glyph(x, y as f32 + layout.ascent, cell, fg);
                     }
                 } else {
                     ui.painter.rect_outline(cursor_rect, color);
@@ -419,6 +432,11 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
         }
     }
     ui.painter.reset_clip();
+}
+
+/// Width left for text once the gutter is taken off a frame.
+fn text_rect_width(rect: Rect, gutter: i32) -> f32 {
+    (rect.w - gutter).max(0) as f32
 }
 
 /// Pixels the welcome page's text sits below its logo.
@@ -458,6 +476,7 @@ fn animated_scroll(ed: &mut Editor, view_id: ViewId, cell_h: f32) -> (usize, i32
     (first, ((shown - first as f32) * cell_h).round() as i32)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn layout_visible_lines(
     ed: &mut Editor,
     font: &FontSet,
@@ -466,6 +485,7 @@ fn layout_visible_lines(
     height: f32,
     base: Style,
     tab_width: usize,
+    wrap: Option<f32>,
 ) -> Vec<VisibleLine> {
     let view = &ed.views[&view_id];
     let buffer_id = view.buffer;
@@ -497,7 +517,7 @@ fn layout_visible_lines(
             background = before.or_else(|| region_background(registry, styles, state));
         }
         let reveal = is_focused && line == cursor_line;
-        let layout = layout_line(&text, &spans, styles, base, font, tab_width, reveal);
+        let layout = layout_line(&text, &spans, styles, base, font, tab_width, reveal, wrap);
         let start = buffer.line_start(line);
         let h = layout.height;
         out.push(VisibleLine { line, start, y, layout, background });
@@ -973,7 +993,7 @@ fn draw_preview(ed: &mut Editor, ui: &mut Ui, rect: Rect, item: Option<PickerIte
             });
             highlighter.highlight_line(registry, lang, &text, state, &mut spans);
         }
-        let layout = layout_line(&text, &spans, styles, base, ui.font, tab_width, false);
+        let layout = layout_line(&text, &spans, styles, base, ui.font, tab_width, false, None);
         if Some(line) == preview.center_line {
             ui.painter.fill_rect(Rect::new(rect.x, y as i32, rect.w, cell_h as i32), line_bg);
         }
@@ -1022,13 +1042,15 @@ pub fn position_at(ed: &mut Editor, font: &FontSet, view_id: ViewId, rect: Rect,
     let tab_width = ed.config.tab_width;
     let scroll_x = ed.views[&view_id].scroll_col as f32 * font.cell_w;
     let (first_line, slide) = animated_scroll(ed, view_id, font.cell_h);
-    let layouts = layout_visible_lines(ed, font, view_id, first_line, rect.h as f32 + font.cell_h, base, tab_width);
+    let wrap = if ed.config.wrap { Some(text_rect_width(rect, gutter)) } else { None };
+    let layouts = layout_visible_lines(ed, font, view_id, first_line, rect.h as f32 + font.cell_h, base, tab_width, wrap);
     let y = (py - rect.y) as f32 + slide as f32;
     let buffer = &ed.buffers[&buffer_id];
     for visible in &layouts {
         if y >= visible.y && y < visible.y + visible.layout.height {
             let x = (px - text_x) as f32 + scroll_x;
-            let col = visible.layout.char_at_x(x);
+            let row = ((y - visible.y) / visible.layout.row_height) as usize;
+            let col = visible.layout.char_at(row, x);
             return Some((visible.start + col).min(buffer.line_end(visible.line)));
         }
     }

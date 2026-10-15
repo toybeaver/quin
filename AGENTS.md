@@ -49,8 +49,8 @@ window, with buffers like neovim". Nothing more.
   change a binding, change both.
 - `:` opens a fuzzy command palette (like Zed or VS Code), not a vim-style
   command line. Keep the list of `:` commands short: write, write-quit,
-  quit, quit!, open, new, terminal, theme, language, reload, cd, pwd, sh,
-  help, config.
+  quit, quit!, open, new, terminal, tree, wrap, theme, language, reload, cd,
+  pwd, sh, help, config.
 - Buffers are the unit, like neovim: files, scratch buffers and terminals are
   all buffers. A terminal is an ordinary buffer with an extra "terminal" mode
   that forwards keys to the shell. There is no special terminal frame, no

@@ -16,10 +16,9 @@ no plugins: text, syntax highlighting, splits, tabs, fuzzy pickers and a real
 terminal in a buffer. Helix-style modal editing, trimmed to the basics.
 
 - **Native and light.** Rust, software rendering (`winit` + `softbuffer`),
-  nine direct dependencies, a ~9 MB binary, no GPU needed. Runs on Linux
-  (Wayland/X11), macOS and Windows. Uses the Nerd Font installed on your
-  system (Iosevka preferred) with ligatures; Nerd Font symbols are embedded
-  so icons always render.
+  nine direct dependencies, a ~12 MB binary, no GPU needed. Runs on Linux
+  (Wayland/X11), macOS and Windows. Iosevka and the Nerd Font symbols are
+  embedded, ligatures included, so it looks the same everywhere.
 - **Buffers and frames.** Buffers are files, scratch pads or terminals. Frames
   split the window (side by side or stacked); tabs hold layouts. Everything is
   driven from the keyboard.
@@ -58,18 +57,7 @@ Everything is also reachable without a window: `quin --screenshot out.ppm
 --keys "space e" file.rs` renders one frame to an image, which is how the UI is
 tested (`wait` in the key list lets a shell or a search finish).
 
-## The welcome page
-
-Started without a file, quin shows a welcome page: the logo, a greeting and
-the five most recent entries (remembered in `recent` next to the config
-file): directories moved into with `:cd` or given on the command line, and
-files opened by name with `:open` or on the command line. Files picked from
-inside a directory do not count. The cursor starts on the most recent entry;
-`ret` opens a file, or makes a directory the working directory and leaves
-the page in a scratch buffer, as does `i`, `a` or any other way into insert
-mode. Everything else works as in any buffer.
-
-## The basics
+## Using it
 
 quin is modal, like Helix (and Kakoune): **selection first, then action**.
 Every cursor is a one-character selection; motions extend or replace the
@@ -84,256 +72,56 @@ through the system clipboard; there are no registers.
 | **SEL** select | `v` | like normal, but motions extend the selection |
 | **TRM** terminal | `:terminal`, or `i` on a terminal buffer | keys go to the shell; `C-esc` for normal mode |
 
+**`:help` is the reference.** It lists every key and command, grouped by
+mode and by special buffer (tree, git, terminal), straight from the key
+tables in `src/keymap.rs`; opened from one of those buffers it lands on the
+matching section. This file only gives the shape of things.
+
 `:` opens the **command palette**: start typing to fuzzy-filter commands,
 `ret` runs the highlighted one, `tab` completes its name. Commands with
-arguments are typed in full (`:write notes.md`, `:cd ~/src`). While the
+arguments are typed in full (`:write notes.md`, `:cd ~/src`); while the
 argument of `cd`, `open` or `write` is typed, the list shows the entries of
-the directory typed so far: `tab` completes the highlighted one, `ret` runs
-the command with it (`open` descends into directories first). Typing a number
-(`:42`) jumps to that line.
+the directory typed so far. Typing a number (`:42`) jumps to that line.
 
-Scroll jumps (`C-d`, `C-u`, search hits, `gg`/`ge`) slide to their target
-over 120 ms, and the cursor slides to its new place over 80 ms, a quieter
-take on Neovide's cursor. `scroll-animation` and `cursor-animation` in the
-config change or disable them.
+The pieces, each of them an ordinary buffer:
 
-The status bar at the bottom shows the mode, the buffer name (`[+]` when
-modified), messages, pending keys, selection count, `line:col` and language.
-A tab bar appears at the top only when there is more than one tab.
+- **Pickers.** `space e` opens a file below the working directory (honouring
+  `.gitignore`), `space E` everything, `space b` an open buffer, `space f`
+  searches every file as you type (seeded with the last `*` or `/` pattern).
+  Typing a path that starts with `/`, `~/`, `./` or `../` into the file picker
+  browses that directory instead, so nothing ties you to one project. Each
+  picker previews the highlighted item on the right; `C-S-v` pastes the
+  clipboard into any of them.
+- **Frames and tabs.** `space w` splits, closes, focuses, swaps, resizes
+  (`+ - < >`, repeatable) and equalises (`0`) frames, and opens or closes tabs;
+  `gt` / `gT` switch tabs. A tab bar shows only with more than one tab.
+- **Terminal.** `:terminal` runs your shell in the current frame. Keys go to
+  the shell; `C-esc` drops to normal mode over the screen and scrollback,
+  where every read-only key works and `p` types the clipboard. Applications
+  that ask for the mouse get it; a plain shell scrolls with the wheel and
+  selects on drag. When the shell exits the frame closes.
+- **File tree.** `A-e` or `:tree` toggles a sidebar in the spirit of oil.nvim:
+  `ret` opens a file or folds a directory, `S-ret` changes the working
+  directory, `-` shows the parent, and editing the text then `:write`
+  renames, creates (a trailing `/` makes a directory), moves and deletes
+  entries; deletes need a second `:write`. Git colours changed and new files
+  and marks directories with changes inside.
+- **Git.** The status line shows the branch (`*` when dirty) and `N↑ M↓`
+  when there is something to push or pull, kept fresh in the background.
+  `space l` opens a status buffer in its own tab: `ret` opens a file in a
+  read-only preview coloured against HEAD, `tab` unfolds its diff, `s` stages
+  or unstages a file, a hunk or a whole section, `c c` / `c a` commit or
+  amend through a floating message (`:write` commits, `:quit` cancels),
+  `p` / `P` pull and push. Nothing git-related ever blocks the editor.
+- **Welcome page.** Started without a file, quin shows the logo and the five
+  most recent entries: directories moved into with `:cd` and files opened by
+  name. `ret` opens one; starting to type swaps the page for a scratch buffer.
 
-### Keybindings
-
-Notation: `C-` control, `A-` alt, `space` the space bar. A count typed before
-a key repeats it (`3w`, `10j`). `:help` opens the same list inside the editor.
-
-#### Movement
-
-| Key | Action |
-|---|---|
-| `h` `j` `k` `l` | move left/down/up/right |
-| `w` `b` `e` | select to next word start / previous word start / next word end |
-| `W` `B` `E` | same with WORDs (whitespace-separated) |
-| `f` `t` `F` `T` + char | select to / till the next (previous) occurrence of a character |
-| `C-d` `C-u` | half page down / up |
-| `C-o` `C-i` | jump backward / forward in the jump list |
-| `%` | select the whole buffer |
-| `C-=` `C-+` / `C--` | bigger / smaller font (any mode) |
-| `ret` | on the welcome page: open the entry under the cursor (the tree and git buffers have their own keys, see below) |
-| `gg` / `ge` | file start / file end (`3gg` goes to line 3) |
-| `gh` `gl` `gs` | line start / last character / first non-blank character |
-| `gn` `gp` | next / previous buffer |
-| `g.` | position of the last change |
-| `gf` | open the file whose name is under the cursor |
-| `gt` `gT` | next / previous tab |
-| `mm` | matching bracket; from inside a `()` `[]` `{}` pair, its closing bracket |
-| `mi` + object | select inside: `w` word, `W` WORD, `p` paragraph, `(` `[` `{` `<` `"` `'` `` ` ``, `m` closest pair |
-| `ma` + object | select around (delimiters included) |
-
-#### Selections
-
-| Key | Action |
-|---|---|
-| `x` | select the current line; again extends to the next line |
-| `X` | the same, growing upwards |
-| `J` | join the line below onto this one (vim style; a count or a multi-line selection joins more) |
-| `;` | collapse selections to cursors |
-| `A-;` | flip anchor and cursor |
-| `,` | keep only the primary selection |
-| `C` / `A-C` | add a cursor on the next / previous line |
-| `s` | select every regex match inside the selections |
-| `v` | toggle select mode |
-| `esc` | back to normal mode |
-
-#### Changes
-
-| Key | Action |
-|---|---|
-| `i` `a` | insert before / after the selection |
-| `I` `A` | insert at the line start / end |
-| `o` `O` | open a line below / above |
-| `d` / `A-d` | delete the selection (to the clipboard / without yanking) |
-| `c` / `A-c` | change the selection (delete and insert / without yanking) |
-| `y` | yank the selection to the clipboard |
-| `p` / `P` | replace the selection with the clipboard; `p` puts the replaced text on the clipboard, `P` keeps the clipboard |
-| `r` + char | replace the character under the cursor |
-| `R` | replace mode: typing overwrites until `esc` |
-| `>` `<` | indent / unindent |
-| `u` `U` | undo / redo (insert-mode typing undoes in one step) |
-| `C-c` | comment / uncomment the selected lines |
-| `.` | repeat the last insertion |
-
-Paste follows vim's visual-mode rules: the clipboard replaces whatever is
-selected, and whole lines on the clipboard (`x y`, then `p`) replace whole
-lines. With several cursors, a yank made with the same number of cursors
-pastes one piece per cursor.
-
-#### Search
-
-| Key | Action |
-|---|---|
-| `/` `?` | search forward / backward (regex, incremental, smart case) |
-| `n` `N` | next / previous match |
-| `*` | use the selection as the search pattern |
-| `space f` | search a regex in every file of the working directory (live results) |
-
-#### Space menu
-
-| Key | Action |
-|---|---|
-| `space e` | file picker (working directory, honours `.gitignore`, hides dot files) |
-| `space E` | file picker with every file, ignored and hidden ones included |
-| `space b` | buffer picker |
-| `space f` | global search |
-| `space c` | close the frame |
-| `A-e` | show / hide the file tree sidebar |
-| `space l` | git status buffer in its own tab |
-| `space w ...` | window menu (below) |
-
-Inside pickers: type to filter, `up`/`down` or `C-p`/`C-n` to move, `ret` to
-open, `C-v` / `C-s` to open in a vertical / horizontal split, `tab` to
-complete, `C-S-v` to paste the clipboard (its first line), `esc` to close.
-The same paste works in the `/` and `s` prompts. File, buffer and search pickers show a preview of
-the highlighted item on the right: the start of the file, or, for search
-results, the matching line highlighted in the middle. The mouse wheel scrolls
-the preview, or the list when the pointer is over it.
-
-The file picker is not bound to the working directory: type a path starting
-with `/`, `~/`, `./` or `../` and it lists that directory instead (directories
-first, `tab` or `ret` descends, `../` goes up). A path that does not exist yet
-opens as a new file.
-
-Global search runs in the background: results stream into the picker as you
-type (at most 2000), with the match highlighted. `ret` jumps to the line.
-After `*` (or `/`) set a search pattern, `space f` starts by searching for
-that pattern everywhere.
-
-#### Frames and tabs (`space w`)
-
-| Key | Action |
-|---|---|
-| `w` / `W` | focus the next / previous frame |
-| `v` / `s` | split vertically (side by side) / horizontally (stacked) |
-| `n` / `N` | vertical / horizontal split with a new scratch buffer |
-| `h` `j` `k` `l` | focus the frame to the left / below / above / right |
-| `H` `J` `K` `L` | swap with that frame |
-| `q` | close the frame |
-| `o` | close every other frame |
-| `t` / `x` | new tab / close tab |
-| `+` / `-` | taller / shorter, taking the space from the frame next to it (the menu stays open: keep pressing, or hold the key) |
-| `>` / `<` | wider / narrower (same) |
-| `0` | every frame of the tab back to an equal share (splitting or closing a frame does this too) |
-
-#### File tree
-
-`A-e` or `:tree` toggles a sidebar on the right listing the working
-directory. It is a buffer like any other, in the spirit of oil.nvim:
-
-| Key | Action |
-|---|---|
-| `ret` | open the file in the frame the tree was opened from (the tree stays), or fold / unfold the directory |
-| `tab` | fold / unfold the directory |
-| `S-ret` | make the directory under the cursor (or the file's directory) the working directory; nothing closes, except a welcome page |
-| `-` | show the parent directory, with the one you came from unfolded, while the working directory stays; `:cd` or reopening the tree brings it back |
-
-- Edit the text to change the file system, then `:write`: a changed name
-  renames, a new line creates (a trailing `/` makes a directory, indentation
-  of two spaces per level puts it inside the directory above), a line moved
-  under another directory moves the entry, a removed line deletes it. Deletes
-  are announced first and applied by a second `:write`. When several names in
-  one directory change at once and they do not resemble each other, quin
-  refuses rather than guess; rename those one at a time.
-
-#### Insert and replace mode
-
-| Key | Action |
-|---|---|
-| `esc` | normal mode |
-| `ret` | newline, keeping the indentation (and indenting after `{`, `(`, `[`) |
-| `tab` | insert an indent |
-| `backspace` / `del` | delete before / under the cursor (an empty pair `()` goes at once, leading spaces by indent level) |
-
-Brackets and quotes auto-pair (`auto-pairs off` in the config disables it).
-Dead keys and input methods work: on an international layout `'` then `a`
-types `á`, `'` then space types `'`.
-
-#### Terminal mode
-
-`:terminal` runs your shell (`$SHELL`, or `shell` in the config) in a new
-buffer shown in the current frame; split first (`space w s`) to keep the file
-next to it. A terminal is an ordinary buffer: in
-terminal mode keys go straight to the shell except `C-esc` (normal mode),
-`C-S-v` (paste the clipboard into the shell) and `C-S-c` (copy the
-selection). In normal mode the screen and scrollback are plain text you can
-move through, search and yank with the usual keys; the view starts at the top
-of the screen, `k` scrolls up into the scrollback. `p` in normal mode types
-the clipboard into the shell. `i` or `a` go back to terminal mode. When the
-shell exits, its frame closes. TUIs that ask for it (the kitty keyboard
-protocol or xterm's modifyOtherKeys) get modified keys such as Shift+Enter
-and Ctrl+letters in CSI u form.
-
-#### Mouse
-
-Click to place the cursor (shift-click extends), drag to select, wheel to
-scroll, click a tab to switch to it. In a terminal, applications that ask
-for the mouse (vim, htop, TUIs) get clicks, drags and the wheel; in a plain
-shell the wheel scrolls the scrollback and dragging selects text (the frame
-drops to normal mode with the selection, `i` goes back). A full-screen
-program without mouse support gets the wheel as arrow keys.
-
-#### Git
-
-When the working directory is inside a git repository, the status line shows
-the branch next to the mode, with `*` when there are uncommitted changes, and
-beside it `N↑ M↓` whenever there are commits to push or to pull. The counts
-are recomputed with every status refresh, so they follow a commit or a push
-at once; a background `git fetch` every ten minutes (and after each git
-action) brings in what the remote gained. The block turns into an arrow and
-a spinner while a pull or push runs. A fetch that fails or stalls only
-leaves the counts behind the remote.
-The file tree colours modified files orange and new files green, and prefixes
-directories with changes anywhere inside them (including deleted files) with
-`* `. The state is read by running `git` in the background every few seconds
-and after each write.
-
-`space l` opens a status buffer in its own tab, in the spirit of neogit: the
-branch, then untracked, unstaged and staged files in sections, or "Nothing
-changed." on a clean tree. Inside it:
-
-| Key | Action |
-|---|---|
-| `ret` | open the file (at the hunk's line) in a read-only preview split on the right, which the buffer keeps reusing, and move into it |
-| `tab` | fold or unfold the diff of the file under the cursor |
-| `s` | stage the file or the single hunk under the cursor, or every file of a section when on its heading; in the staged section, unstage |
-| `p` / `P` | pull (fetch and merge) / push, in the background; the first push sets `origin` as upstream |
-| `c c` / `c a` | commit the staged changes / amend the last commit: a commit message opens in a floating frame, prefilled like `git commit` does; `:write` commits, `:quit` (or an empty message) cancels |
-| `esc` | close the preview split |
-
-The preview colours the file against HEAD: new lines green, modified lines
-yellow with the changed part highlighted, and a red marker where lines were
-deleted. `space w l` moves into the preview to scroll or yank from it.
-
-The buffer refreshes as the status changes.
-
-### Commands (`:`)
-
-| Command | Aliases | Action |
-|---|---|---|
-| `write [path]` | `w` | write the buffer (to `path` if given) |
-| `write-quit` | `wq` `x` | write, then close the frame or quit |
-| `quit` / `quit!` | `q` `q!` | close the frame, or quit when it is the last one (`!` discards changes) |
-| `open [path]` | `o` `e` | open a file, or the file picker |
-| `new` | `n` | new scratch buffer |
-| `terminal` | `term` | open a terminal in the current frame |
-| `tree` | | show or hide the file tree sidebar |
-| `theme [name]` | | switch theme; without a name the picker previews each theme on the whole window as you move through it (`esc` goes back) |
-| `language [name]` | `lang` | set the buffer's language (picker without a name) |
-| `reload` | `rl` | reload the file from disk |
-| `cd [dir]` / `pwd` | | working directory |
-| `sh <cmd>` | `!` | run a command, show its output |
-| `help` | | every binding and command, in a buffer; from the tree, git or a terminal buffer it opens in a new tab on that section |
-| `config` | | open the configuration file |
-
-Closing the window with unsaved changes asks you to close a second time.
+Long lines scroll sideways unless `:wrap` is on (or `wrap = true` in the
+config), which folds them at the frame edge, breaking at spaces. Scroll jumps
+and the cursor slide to their targets (`scroll-animation`,
+`cursor-animation`). The mouse places the cursor, drags selections, scrolls
+and switches tabs. Closing the window with unsaved changes asks a second time.
 
 ## Configuration
 
@@ -360,6 +148,7 @@ line-numbers = "on"                  # "on", "off", "relative"
 cursorline   = true
 scrolloff    = 3
 auto-pairs   = true
+wrap         = false                 # soft-wrap long lines; `:wrap` toggles it for the session
 scroll-animation = 120               # milliseconds a scroll jump slides; 0 jumps at once
 cursor-animation = 80                # milliseconds the cursor slides; 0 jumps at once
 shell        = "/bin/zsh"
@@ -496,12 +285,10 @@ header comment saying what it is for.
 
 ## Limitations and ideas
 
-- No soft wrap: long lines scroll horizontally.
 - One font family plus the symbol fallback. Characters the font lacks show
   as `�` (CJK needs a font that has them: set `font` in the config). Fonts
   are found by file name, not through fontconfig.
-- Terminal: no mouse reporting, no sixel; scrollback is browsed in normal
-  mode (`C-esc`).
+- Terminal: no images (sixel and the like).
 - No LSP, no tree-sitter, and that is on purpose.
 - A WebAssembly build is not wired up yet; the platform-specific parts
   (terminal, clipboard, file system) are confined to a few files for when it is.

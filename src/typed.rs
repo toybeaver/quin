@@ -144,6 +144,16 @@ fn new_buffer(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// `:wrap`: soft-wrap long lines (or not) for the rest of the session.
+fn wrap(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
+    ed.config.wrap = !ed.config.wrap;
+    for view in ed.views.values_mut() {
+        view.scroll_col = 0;
+    }
+    ed.set_message(if ed.config.wrap { "wrap on" } else { "wrap off" });
+    Ok(())
+}
+
 fn tree(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
     crate::tree::toggle(ed);
     Ok(())
@@ -405,6 +415,7 @@ typed_commands! {
     "new", ["n"], "New scratch buffer", false => new_buffer;
     "terminal", ["term"], "Open a terminal in this frame", false => terminal;
     "tree", [], "Show or hide the file tree sidebar", false => tree;
+    "wrap", [], "Toggle soft wrap of long lines", false => wrap;
     "theme", [], "Switch theme (<name>, or pick one)", false => theme;
     "language", ["lang"], "Set the buffer's language (<name>, or pick one)", false => language;
     "reload", ["rl"], "Reload the file from disk", false => reload;

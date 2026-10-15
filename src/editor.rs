@@ -588,6 +588,7 @@ impl Editor {
         let scrolloff = self.config.scrolloff;
         let tab_width = self.config.tab_width;
         let animation = self.config.scroll_animation;
+        let wrap = self.config.wrap;
         let (view, buffer) = self.current();
         let cursor = view.cursor().min(buffer.len_chars());
         let line = buffer.line_of(cursor);
@@ -599,6 +600,10 @@ impl Editor {
             view.scroll_to(line.saturating_sub(scrolloff), animation);
         } else if line + scrolloff >= view.scroll_line + rows {
             view.scroll_to(line + scrolloff + 1 - rows, animation);
+        }
+        if wrap {
+            view.scroll_col = 0;
+            return;
         }
         let col = crate::movement::column_of(&buffer.text, cursor, tab_width);
         let cols = view.cols.max(1);

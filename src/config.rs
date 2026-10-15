@@ -18,6 +18,7 @@
 //! cursorline   = true
 //! scrolloff    = 3
 //! auto-pairs   = true
+//! wrap         = false                 # soft-wrap long lines (`:wrap` toggles it for the session)
 //! scroll-animation = 120               # milliseconds for scroll jumps to slide; 0 for none
 //! cursor-animation = 80                # milliseconds for the cursor to slide; 0 for none
 //! shell        = "/bin/zsh"
@@ -40,6 +41,8 @@ pub struct Config {
     pub cursorline: bool,
     pub scrolloff: usize,
     pub auto_pairs: bool,
+    /// Soft-wrap long lines instead of scrolling sideways.
+    pub wrap: bool,
     /// Milliseconds a scroll jump takes to slide; 0 jumps at once.
     pub scroll_animation: u64,
     /// Milliseconds the cursor takes to slide to its new place; 0 jumps at once.
@@ -62,6 +65,7 @@ impl Default for Config {
             cursorline: true,
             scrolloff: 3,
             auto_pairs: true,
+            wrap: false,
             scroll_animation: 120,
             cursor_animation: 80,
             shell: None,
@@ -142,6 +146,7 @@ impl Config {
             "cursorline" => self.cursorline = bool_value()?,
             "scrolloff" => self.scrolloff = value.parse().map_err(|_| format!("bad scrolloff `{value}`"))?,
             "auto-pairs" => self.auto_pairs = bool_value()?,
+            "wrap" => self.wrap = bool_value()?,
             "scroll-animation" => self.scroll_animation = value.parse().map_err(|_| format!("bad scroll-animation `{value}`"))?,
             "cursor-animation" => self.cursor_animation = value.parse().map_err(|_| format!("bad cursor-animation `{value}`"))?,
             "shell" => self.shell = Some(value.to_string()),
@@ -164,6 +169,7 @@ impl Config {
              # cursorline = true\n\
              # scrolloff = 3\n\
              # auto-pairs = true\n\
+             # wrap = false   # soft-wrap long lines; :wrap toggles it\n\
              # scroll-animation = 120   # milliseconds; 0 for none\n\
              # cursor-animation = 80    # milliseconds; 0 for none\n\
              # shell = \"/bin/zsh\"\n",
