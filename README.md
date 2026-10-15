@@ -3,8 +3,9 @@
 > [!WARNING]
 > Although this text editor targets fully manual (artisanal) coding, it is COMPLETELY vibe-coded. 
 > I do intend to rewrite parts of it by hand, but this will forever be an AI-centric codebase due to 2 reasons:
-> 1. I really wanted a code editor thats plug and play for my necessities without actually requiring to tweak keybindings, plugins, etc; 
-> and 2. I have many more projects that are more interesting to me than a text editor. Feel free to open PRs or code suggestions though!
+> 
+> 1. I really wanted a code editor thats plug and play for my necessities without actually requiring to tweak keybindings, plugins, etc; and
+> 2. I have many more projects that are more interesting to me than a text editor. Feel free to open PRs or code suggestions though!
 
 A small, fast, keyboard-driven code editor with a native GUI. No LSP, no AI,
 no plugins: text, syntax highlighting, splits, tabs, fuzzy pickers and a real
