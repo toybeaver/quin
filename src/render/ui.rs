@@ -44,11 +44,10 @@ impl<'a> Ui<'a> {
 
     #[allow(clippy::too_many_arguments)]
     fn glyph(&mut self, x: f32, baseline: f32, ch: char, color: Color, bold: bool, italic: bool, scale: f32) {
-        let glyph = self.font.glyph(ch, bold, scale);
+        let glyph = self.font.glyph(ch, bold, italic, scale);
         let gx = x.round() as i32 + glyph.xmin;
         let gy = baseline.round() as i32 - glyph.ymin - glyph.height as i32;
-        let shear = if italic { 0.2 } else { 0.0 };
-        self.painter.blit_mask(gx, gy, glyph.width, glyph.height, &glyph.mask, color, shear);
+        self.painter.blit_mask(gx, gy, glyph.width, glyph.height, &glyph.mask, color);
     }
 
     /// Draw a laid-out cell: its ligature glyph when it starts one, nothing
@@ -60,11 +59,10 @@ impl<'a> Ui<'a> {
         let style = cell.style;
         match cell.glyph {
             Some(id) => {
-                let glyph = self.font.glyph_by_id(id, style.bold && self.font.fake_bold(), style.scale);
+                let glyph = self.font.glyph_by_id(id, style.bold, style.italic, style.scale);
                 let gx = x.round() as i32 + glyph.xmin;
                 let gy = baseline.round() as i32 - glyph.ymin - glyph.height as i32;
-                let shear = if style.italic { 0.2 } else { 0.0 };
-                self.painter.blit_mask(gx, gy, glyph.width, glyph.height, &glyph.mask, color, shear);
+                self.painter.blit_mask(gx, gy, glyph.width, glyph.height, &glyph.mask, color);
             }
             None if cell.ch != ' ' && cell.ch != '\t' => self.glyph(x, baseline, cell.ch, color, style.bold, style.italic, style.scale),
             None => {}

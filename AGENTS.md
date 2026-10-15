@@ -63,8 +63,9 @@ window, with buffers like neovim". Nothing more.
 - The editor is not project bound: the file picker starts from the working
   directory but browses any path typed into it. Global search streams results
   from a background thread; never block the UI on a search.
-- Fonts: Iosevka (Nerd Font Mono build, subset with fonttools to the scripts
-  and symbols the editor needs) and the Nerd Font symbol set are embedded;
+- Fonts: Iosevka (Nerd Font Mono build, regular/bold/italic/bold-italic,
+  subset with fonttools to the scripts and symbols the editor needs) and the
+  Nerd Font symbol set are embedded;
   `font-family`/`font` in the config swap in a system font. Support
   ligatures. Do not grow the embedded fonts beyond a few megabytes.
 - Pickers that open files (files, buffers, search results) always show a

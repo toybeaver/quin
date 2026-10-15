@@ -371,9 +371,12 @@ collection that Ghostty ships (`catppuccin-mocha`, `gruvbox-dark`,
 `solarized-light`...): each 16-color terminal palette is turned into a full
 editor theme, and terminals inside quin use that palette as is.
 
-**Fonts.** Iosevka (the Nerd Font Mono build, regular and bold, subset to
-Latin, Greek, Cyrillic, punctuation, box drawing and Powerline) is embedded,
-so the editor looks the same wherever it is installed. `font-family` names
+**Fonts.** Iosevka (the Nerd Font Mono build in regular, bold, italic and
+bold italic, subset to Latin, Greek, Cyrillic, punctuation, box drawing and
+Powerline) is embedded, so the editor looks the same wherever it is
+installed. A `font-family` picks up its bold and italic files when they sit
+next to the regular one; a font without them gets bold by smearing and
+italic by a smooth slant. `font-family` names
 any installed font by its family name, matched against the font file names
 without spaces or case (`"JetBrainsMono Nerd Font"`); `font` points at a
 font file. The Nerd Font symbol set is embedded as a fallback for every
@@ -494,9 +497,9 @@ header comment saying what it is for.
 ## Limitations and ideas
 
 - No soft wrap: long lines scroll horizontally.
-- One font plus the symbol fallback, with synthetic italic. Characters the
-  font lacks show as `�` (CJK needs a font that has them: set `font` in the
-  config). Fonts are found by file name, not through fontconfig.
+- One font family plus the symbol fallback. Characters the font lacks show
+  as `�` (CJK needs a font that has them: set `font` in the config). Fonts
+  are found by file name, not through fontconfig.
 - Terminal: no mouse reporting, no sixel; scrollback is browsed in normal
   mode (`C-esc`).
 - No LSP, no tree-sitter, and that is on purpose.

@@ -166,13 +166,14 @@ fn apply_ligatures(cells: &mut [Cell], font: &FontSet) {
         while j < cells.len()
             && may_ligate(&cells[j])
             && cells[j].style.bold == cells[i].style.bold
+            && cells[j].style.italic == cells[i].style.italic
             && cells[j].style.scale == cells[i].style.scale
         {
             j += 1;
         }
         if j - i >= 2 {
             let run: String = cells[i..j].iter().map(|c| c.ch).collect();
-            if let Some(shaped) = font.shape(&run, cells[i].style.bold) {
+            if let Some(shaped) = font.shape(&run, cells[i].style.bold, cells[i].style.italic) {
                 for glyph in shaped {
                     let first = i + glyph.char_offset;
                     cells[first].glyph = Some(glyph.glyph);

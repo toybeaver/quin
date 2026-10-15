@@ -177,10 +177,12 @@ fn load_theme(name: &str, config_dir: Option<&Path>) -> Option<theme::Theme> {
 fn load_font(editor: &mut Editor, scale: f64) -> FontSet {
     let config = &editor.config;
     let size = (config.font_size as f64 * scale) as f32;
-    let read = |path: &PathBuf| std::fs::read(path).ok();
+    let read = |path: &Option<PathBuf>| path.as_ref().and_then(|p| std::fs::read(p).ok());
     let family_of = |path: &Path| path.file_stem().and_then(|s| s.to_str()).unwrap_or("").trim_end_matches("-Regular").to_string();
     let found = match (&config.font, &config.font_family) {
-        (Some(path), _) => Some((path.clone(), config.bold_font.clone())),
+        (Some(path), _) => {
+            Some(render::font::FamilyFiles { regular: path.clone(), bold: config.bold_font.clone(), italic: None, bold_italic: None })
+        }
         (None, Some(family)) => {
             let found = render::font::find_font_family(family);
             if found.is_none() {
@@ -190,16 +192,27 @@ fn load_font(editor: &mut Editor, scale: f64) -> FontSet {
         }
         (None, None) => None,
     };
+    let builtin = || (FontSet::builtin(size), "Iosevka".to_string());
     let (mut font, family) = match found {
-        Some((regular, bold)) => match read(&regular).map(|bytes| FontSet::load(bytes, bold.as_ref().and_then(read), size)) {
-            Some(Ok(font)) => (font, family_of(&regular)),
-            Some(Err(err)) => {
-                eprintln!("quin: cannot load font {}: {err}", regular.display());
-                (FontSet::builtin(size), "Iosevka".to_string())
+        Some(files) => match std::fs::read(&files.regular) {
+            Ok(regular) => {
+                let bytes = render::font::FontFiles {
+                    regular,
+                    bold: read(&files.bold),
+                    italic: read(&files.italic),
+                    bold_italic: read(&files.bold_italic),
+                };
+                match FontSet::load(bytes, size) {
+                    Ok(font) => (font, family_of(&files.regular)),
+                    Err(err) => {
+                        eprintln!("quin: cannot load font {}: {err}", files.regular.display());
+                        builtin()
+                    }
+                }
             }
-            None => (FontSet::builtin(size), "Iosevka".to_string()),
+            Err(_) => builtin(),
         },
-        None => (FontSet::builtin(size), "Iosevka".to_string()),
+        None => builtin(),
     };
     font.ligatures = config.ligatures;
     editor.font_family = family;

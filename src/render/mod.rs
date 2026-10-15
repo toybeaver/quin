@@ -198,17 +198,16 @@ impl<'a> Painter<'a> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn blit_mask(&mut self, x: i32, y: i32, w: usize, h: usize, mask: &[u8], color: Color, shear: f32) {
+    /// Draw a coverage mask (a glyph) in one color at (x, y).
+    pub fn blit_mask(&mut self, x: i32, y: i32, w: usize, h: usize, mask: &[u8], color: Color) {
         for row in 0..h {
             let py = y + row as i32;
             if py < self.clip.y || py >= self.clip.bottom() {
                 continue;
             }
-            let shift = if shear != 0.0 { ((h - row) as f32 * shear).round() as i32 } else { 0 };
             let row_start = py as usize * self.width;
             for col in 0..w {
-                let px = x + col as i32 + shift;
+                let px = x + col as i32;
                 if px < self.clip.x || px >= self.clip.right() {
                     continue;
                 }
