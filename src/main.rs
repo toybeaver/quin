@@ -248,7 +248,7 @@ fn wait_for_background(editor: &mut Editor) {
     for _ in 0..200 {
         editor.poll_search();
         editor.poll_git(false);
-        if editor.live_search.as_ref().is_none_or(|s| s.done) && !editor.git.in_flight() {
+        if editor.live_search.as_ref().is_none_or(|s| s.done) && !editor.git.in_flight() && editor.git.remote.is_none() {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -559,7 +559,9 @@ impl ApplicationHandler<()> for App {
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {
         let terminals = self.editor.process_terminals();
         let git = self.editor.poll_git(false);
-        if self.editor.poll_search() || terminals || git {
+        // A running pull or push ticks the window so its spinner keeps turning.
+        let spinning = self.editor.git.remote.is_some();
+        if self.editor.poll_search() || terminals || git || spinning {
             self.request_redraw();
         }
     }

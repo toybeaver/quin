@@ -124,4 +124,5 @@ directory            #4078f2 bold
 tree.hidden          #a0a1a7
 tree.modified        #c18401
 tree.new             #50a14f
+ui.git.sync          #986801    # ahead/behind block and pull/push spinner
 ui.git               #0184bc    # branch badge in the status line

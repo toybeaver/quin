@@ -402,6 +402,8 @@ pub const GIT_KEYS: &[(&str, &str)] = &[
     ("esc", "git_close_preview"),
     ("c c", "git_commit"),
     ("c a", "git_commit_amend"),
+    ("p", "git_pull"),
+    ("P", "git_push"),
 ];
 
 /// Keys intercepted while a terminal buffer is in terminal mode. Everything

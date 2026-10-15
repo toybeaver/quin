@@ -16,6 +16,10 @@ use crate::terminal::WakeFn;
 
 /// How often the status is re-read while the editor is in use.
 const REFRESH_EVERY: Duration = Duration::from_secs(3);
+/// How often the upstream is fetched to count commits ahead and behind.
+const FETCH_EVERY: Duration = Duration::from_secs(10);
+/// A fetch taking longer than this is given up on (the thread is left to finish).
+const FETCH_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FileStatus {
@@ -88,16 +92,102 @@ pub struct GitWatcher {
     queried_cwd: PathBuf,
     /// A refresh was asked for while one was running: run again right after.
     rerun: bool,
+    /// A pull or push running in the background.
+    pub remote: Option<RemoteOp>,
+    /// Commits ahead of and behind the upstream, from the last background fetch.
+    pub sync: Option<Sync>,
+    fetch_pending: Option<(Receiver<Option<Sync>>, Instant)>,
+    last_fetch: Option<Instant>,
+}
+
+/// How the branch compares with its upstream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sync {
+    pub ahead: usize,
+    pub behind: usize,
+}
+
+impl Sync {
+    /// `N↑ M↓` for the status line.
+    pub fn label(&self) -> String {
+        format!("{}↑ {}↓", self.ahead, self.behind)
+    }
+}
+
+pub struct RemoteOp {
+    pub label: &'static str,
+    receiver: Receiver<(bool, String)>,
+    started: Instant,
+}
+
+impl RemoteOp {
+    /// What the status line shows next to the branch while this runs: an
+    /// arrow for the direction and a spinner that turns every 80 ms.
+    pub fn indicator(&self) -> String {
+        const FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+        let frame = FRAMES[(self.started.elapsed().as_millis() / 80) as usize % FRAMES.len()];
+        let arrow = if self.label == "pull" { '↓' } else { '↑' };
+        format!("{arrow} {frame}")
+    }
 }
 
 impl GitWatcher {
     pub fn new() -> GitWatcher {
-        GitWatcher { state: None, pending: None, last_started: None, queried_cwd: PathBuf::new(), rerun: false }
+        GitWatcher {
+            state: None,
+            pending: None,
+            last_started: None,
+            queried_cwd: PathBuf::new(),
+            rerun: false,
+            remote: None,
+            sync: None,
+            fetch_pending: None,
+            last_fetch: None,
+        }
     }
 
     /// A query is running.
     pub fn in_flight(&self) -> bool {
         self.pending.is_some()
+    }
+
+    /// Fetch the upstream every `FETCH_EVERY` (or right away with `now`) on
+    /// a thread of its own and pick up the ahead/behind counts it reports.
+    /// Nothing here waits: a slow or failing fetch only means stale counts.
+    /// Returns true when the counts changed.
+    pub fn poll_fetch(&mut self, wake: WakeFn, now: bool) -> bool {
+        let mut changed = false;
+        if let Some((receiver, started)) = &self.fetch_pending {
+            match receiver.try_recv() {
+                Ok(sync) => {
+                    changed = sync != self.sync;
+                    self.sync = sync;
+                    self.fetch_pending = None;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.fetch_pending = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => {
+                    if started.elapsed() < FETCH_TIMEOUT {
+                        return false;
+                    }
+                    self.fetch_pending = None; // stuck: forget it and try again
+                }
+            }
+        }
+        let Some(root) = self.state.as_ref().map(|s| s.root.clone()) else {
+            changed |= self.sync.take().is_some();
+            return changed;
+        };
+        let due = now || self.last_fetch.is_none_or(|t| t.elapsed() >= FETCH_EVERY);
+        if due && self.fetch_pending.is_none() {
+            self.last_fetch = Some(Instant::now());
+            let (tx, rx) = channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(fetch_and_count(&root));
+                wake();
+            });
+            self.fetch_pending = Some((rx, Instant::now()));
+        }
+        changed
     }
 
     /// Pick up a finished query and start a new one when due (or `now`).
@@ -146,6 +236,25 @@ fn git(cwd: &Path, args: &[&str]) -> Option<String> {
         .output()
         .ok()?;
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Fetch the upstream, then count commits ahead of and behind it. `None`
+/// without an upstream (or when git fails).
+pub fn fetch_and_count(root: &Path) -> Option<Sync> {
+    let _ = run_git(root, &["fetch", "--quiet"], None);
+    let (ok, output) = run_git(root, &["rev-list", "--left-right", "--count", "@{u}...HEAD"], None);
+    if !ok {
+        return None;
+    }
+    parse_counts(&output)
+}
+
+/// `rev-list --left-right --count @{u}...HEAD` prints `behind<TAB>ahead`.
+fn parse_counts(output: &str) -> Option<Sync> {
+    let mut parts = output.split_whitespace();
+    let behind = parts.next()?.parse().ok()?;
+    let ahead = parts.next()?.parse().ok()?;
+    Some(Sync { ahead, behind })
 }
 
 /// Ask git about the repository holding `cwd`. `None` outside a repository
@@ -370,7 +479,9 @@ fn describe(code: u8) -> &'static str {
 /// Run git with stdin; returns (succeeded, stdout).
 fn run_git(cwd: &Path, args: &[&str], input: Option<&str>) -> (bool, String) {
     let mut command = Command::new("git");
-    command.arg("-C").arg(cwd).args(args).env("GIT_OPTIONAL_LOCKS", "0").stdout(Stdio::piped()).stderr(Stdio::piped());
+    // No terminal to answer prompts on: a remote asking for a password fails instead of hanging.
+    command.arg("-C").arg(cwd).args(args).env("GIT_OPTIONAL_LOCKS", "0").env("GIT_TERMINAL_PROMPT", "0");
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
     command.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() });
     let Ok(mut child) = command.spawn() else { return (false, String::new()) };
     if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
@@ -669,6 +780,75 @@ pub fn stage(ed: &mut Editor) {
 }
 
 // ---------------------------------------------------------------------------
+// Pull and push (`p`, `P`)
+// ---------------------------------------------------------------------------
+
+/// `p`: fetch and merge the upstream, on a background thread.
+pub fn pull(ed: &mut Editor) {
+    run_remote(ed, "pull", |root, _| run_git(&root, &["pull"], None));
+}
+
+/// `P`: push the branch, setting `origin` as its upstream the first time.
+pub fn push(ed: &mut Editor) {
+    run_remote(ed, "push", |root, branch| {
+        let (has_upstream, _) = run_git(&root, &["rev-parse", "--abbrev-ref", "@{u}"], None);
+        if has_upstream { run_git(&root, &["push"], None) } else { run_git(&root, &["push", "-u", "origin", &branch], None) }
+    });
+}
+
+/// Run a git operation that talks to the network without blocking the
+/// editor; `poll_remote` reports its outcome.
+fn run_remote(ed: &mut Editor, label: &'static str, operation: impl FnOnce(PathBuf, String) -> (bool, String) + Send + 'static) {
+    let Some(state) = &ed.git.state else {
+        ed.set_error("not a git repository");
+        return;
+    };
+    if let Some(running) = &ed.git.remote {
+        ed.set_error(format!("git {} is still running", running.label));
+        return;
+    }
+    let (root, branch) = (state.root.clone(), state.branch.clone());
+    let wake = ed.wake.clone().unwrap_or_else(|| std::sync::Arc::new(|| {}));
+    let (tx, rx) = channel();
+    let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let finished = done.clone();
+    let wake_op = wake.clone();
+    std::thread::spawn(move || {
+        let _ = tx.send(operation(root, branch));
+        finished.store(true, std::sync::atomic::Ordering::Relaxed);
+        wake_op();
+    });
+    // Tick the window while it runs so the spinner in the status line turns.
+    std::thread::spawn(move || {
+        while !done.load(std::sync::atomic::Ordering::Relaxed) {
+            std::thread::sleep(Duration::from_millis(100));
+            wake();
+        }
+    });
+    ed.git.remote = Some(RemoteOp { label, receiver: rx, started: Instant::now() });
+}
+
+/// Pick up a finished pull or push: show git's last line, refresh the status.
+/// Returns true when one finished.
+pub fn poll_remote(ed: &mut Editor) -> bool {
+    let Some(op) = &ed.git.remote else { return false };
+    let outcome = match op.receiver.try_recv() {
+        Ok(outcome) => outcome,
+        Err(std::sync::mpsc::TryRecvError::Empty) => return false,
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => (false, "git exited without an answer".to_string()),
+    };
+    let label = op.label;
+    ed.git.remote = None;
+    let summary = outcome.1.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("done").trim().to_string();
+    if outcome.0 {
+        ed.set_message(format!("git {label}: {summary}"));
+    } else {
+        ed.set_error(format!("git {label} failed: {summary}"));
+    }
+    true
+}
+
+// ---------------------------------------------------------------------------
 // Committing (`c c`, `c a`)
 // ---------------------------------------------------------------------------
 
@@ -757,6 +937,13 @@ pub fn cancel_commit(ed: &mut Editor) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_ahead_behind_counts() {
+        assert_eq!(parse_counts("3\t1\n"), Some(Sync { ahead: 1, behind: 3 }));
+        assert_eq!(parse_counts(""), None);
+        assert_eq!(Sync { ahead: 2, behind: 0 }.label(), "2↑ 0↓");
+    }
 
     #[test]
     fn parses_porcelain_status() {

@@ -825,6 +825,45 @@ fn git_status_marks_the_tree_and_the_status_line() {
     assert_eq!(ed.tabs.len(), 2);
     let subject = git(&dir, &["log", "-1", "--pretty=%s"]).unwrap();
     assert_eq!(String::from_utf8_lossy(&subject.stdout).trim(), "Stage things");
+    // P pushes (setting the upstream the first time), p pulls; both in the background.
+    let bare = std::env::temp_dir().join(format!("quin-git-{}-remote", std::process::id()));
+    std::fs::create_dir_all(&bare).unwrap();
+    git(&bare, &["init", "-q", "--bare"]).unwrap();
+    git(&dir, &["remote", "add", "origin", &bare.to_string_lossy()]).unwrap();
+    let wait_remote = |ed: &mut Editor| {
+        for _ in 0..600 {
+            ed.poll_git(false);
+            if ed.git.remote.is_none() && !ed.git.in_flight() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    };
+    keys(&mut ed, "P");
+    let op = ed.git.remote.as_ref().expect("push runs in the background");
+    assert!(op.indicator().starts_with('↑'), "the status line shows an up arrow and a spinner: {}", op.indicator());
+    wait_remote(&mut ed);
+    assert!(ed.message.as_ref().is_some_and(|m| m.text.starts_with("git push:")), "{:?}", ed.message);
+    let pushed = git(&bare, &["log", "-1", "--pretty=%s", &clean.branch]).unwrap();
+    assert_eq!(String::from_utf8_lossy(&pushed.stdout).trim(), "Stage things", "the commit reached the remote");
+    keys(&mut ed, "p");
+    wait_remote(&mut ed);
+    assert!(ed.message.as_ref().is_some_and(|m| m.text.contains("Already up to date")), "{:?}", ed.message);
+    // The background fetch counts commits ahead of and behind the upstream.
+    assert_eq!(crate::git::fetch_and_count(&dir), Some(crate::git::Sync { ahead: 0, behind: 0 }));
+    std::fs::write(dir.join("top.txt"), "later").unwrap();
+    git(&dir, &["commit", "-q", "-am", "local only"]).unwrap();
+    assert_eq!(crate::git::fetch_and_count(&dir), Some(crate::git::Sync { ahead: 1, behind: 0 }));
+    ed.poll_git(true);
+    for _ in 0..600 {
+        ed.poll_git(false);
+        if ed.git.sync == Some(crate::git::Sync { ahead: 1, behind: 0 }) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(ed.git.sync, Some(crate::git::Sync { ahead: 1, behind: 0 }), "the watcher picked the counts up");
+    std::fs::remove_dir_all(&bare).unwrap();
     for _ in 0..300 {
         ed.poll_git(false);
         if !text(&ed).contains("Staged changes") && !ed.git.in_flight() {
@@ -835,7 +874,7 @@ fn git_status_marks_the_tree_and_the_status_line() {
     assert!(!text(&ed).contains("Staged changes"), "{}", text(&ed));
     // c a prefills the last message; :quit cancels.
     keys(&mut ed, "c a");
-    assert!(text(&ed).starts_with("Stage things\n"), "{}", text(&ed));
+    assert!(text(&ed).starts_with("local only\n"), "the last message is prefilled: {}", text(&ed));
     keys(&mut ed, "esc : text:quit ret");
     assert!(ed.float.is_none() && ed.message.as_ref().is_some_and(|m| m.text.contains("cancelled")));
     keys(&mut ed, "c c");

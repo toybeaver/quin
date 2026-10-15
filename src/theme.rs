@@ -203,6 +203,7 @@ impl Theme {
             ("tree.modified", p(3), ""),
             ("tree.new", p(2), ""),
             ("ui.git", p(6), ""),
+            ("ui.git.sync", p(3), ""),
         ];
         let mut source = String::new();
         for (scope, color, attrs) in entries {

@@ -717,6 +717,19 @@ fn draw_status_line(ed: &Editor, ui: &mut Ui, rect: Rect) {
         ui.painter.fill_rect(Rect::new(x, rect.y, w, rect.h), ed.theme.ui("ui.git", badge_bg));
         ui.text(x, y, &label, badge_fg, true);
         x += w;
+        // Commits ahead and behind the upstream; a spinner while pulling or pushing.
+        let sync = match (&ed.git.remote, &ed.git.sync) {
+            (Some(op), _) => Some(op.indicator()),
+            (None, Some(sync)) => Some(sync.label()),
+            (None, None) => None,
+        };
+        if let Some(text) = sync {
+            let label = format!(" {text} ");
+            let w = ui.text_width(&label);
+            ui.painter.fill_rect(Rect::new(x, rect.y, w, rect.h), ed.theme.ui("ui.git.sync", badge_bg));
+            ui.text(x, y, &label, badge_fg, true);
+            x += w;
+        }
     }
     x += cell_w;
 

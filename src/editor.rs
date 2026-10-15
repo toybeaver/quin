@@ -667,14 +667,17 @@ impl Editor {
     /// its markers when something changed. Returns true on a change.
     pub fn poll_git(&mut self, now: bool) -> bool {
         let wake = self.wake.clone().unwrap_or_else(|| std::sync::Arc::new(|| {}));
-        let changed = self.git.poll(&self.cwd.clone(), wake, now);
+        // A finished pull or push changes the status: query again right away.
+        let finished = crate::git::poll_remote(self);
+        let changed = self.git.poll(&self.cwd.clone(), wake.clone(), finished || now);
+        let synced = self.git.poll_fetch(wake, finished || now);
         if changed && self.tree.as_ref().is_some_and(|t| self.buffers.get(&t.buffer).is_some_and(|b| !b.is_modified())) {
             crate::tree::render(self);
         }
         if changed && self.git_buffer.is_some() {
             crate::git::render_status(self);
         }
-        changed
+        changed || synced
     }
 
     /// Any view still sliding its scroll or cursor (the window keeps redrawing).

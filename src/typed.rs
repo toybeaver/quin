@@ -287,7 +287,7 @@ The git status buffer (`space l`) lists untracked, unstaged and staged files.
 `ret` opens the file in a read-only preview split on the right, coloured
 against HEAD; `tab` unfolds its diff; `s` stages the file or hunk under the
 cursor (or unstages it in the staged section); `c c` / `c a` open a floating
-commit message: `:write` commits, `:quit` cancels.
+commit message: `:write` commits, `:quit` cancels; `p` pulls and `P` pushes.
 
 ";
 

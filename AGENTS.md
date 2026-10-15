@@ -87,7 +87,12 @@ window, with buffers like neovim". Nothing more.
   diff, `s` stages or unstages files and hunks (`git add`,
   `git restore --staged`, `git apply --cached`), `esc` closes the preview,
   `c c` / `c a` commit or amend through a floating commit-message frame
-  (`Editor::float`; `:write` commits with `git commit -F -`, `:quit` cancels).
+  (`Editor::float`; `:write` commits with `git commit -F -`, `:quit` cancels),
+  `p` / `P` pull and push on a background thread (`git::run_remote`), and a
+  `git fetch` every 10 s on its own thread feeds an ahead/behind block in the
+  status line. Nothing git-related may ever block or break the editor: every
+  call runs off the UI thread with prompts disabled, and failures just mean
+  stale information.
   `space` stays the leader key everywhere. The git buffer's keys live in
   `GIT_KEYS` and are tried before the normal keymap.
 - Default font: the embedded Iosevka.

@@ -264,7 +264,10 @@ program without mouse support gets the wheel as arrow keys.
 #### Git
 
 When the working directory is inside a git repository, the status line shows
-the branch next to the mode, with `*` when there are uncommitted changes.
+the branch next to the mode, with `*` when there are uncommitted changes, and
+beside it `N↑ M↓`: commits to push and to pull, from a background `git fetch`
+every ten seconds (the block turns into an arrow and a spinner while a pull
+or push runs). A fetch that fails or stalls only leaves the counts stale.
 The file tree colours modified files orange and new files green, and prefixes
 directories with changes anywhere inside them (including deleted files) with
 `* `. The state is read by running `git` in the background every few seconds
@@ -279,6 +282,7 @@ changed." on a clean tree. Inside it:
 | `ret` | open the file (at the hunk's line) in a read-only preview split on the right, which the buffer keeps reusing, and move into it |
 | `tab` | fold or unfold the diff of the file under the cursor |
 | `s` | stage the file or the single hunk under the cursor, or every file of a section when on its heading; in the staged section, unstage |
+| `p` / `P` | pull (fetch and merge) / push, in the background; the first push sets `origin` as upstream |
 | `c c` / `c a` | commit the staged changes / amend the last commit: a commit message opens in a floating frame, prefilled like `git commit` does; `:write` commits, `:quit` (or an empty message) cancels |
 | `esc` | close the preview split |
 

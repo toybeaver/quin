@@ -1395,6 +1395,14 @@ fn git_close_preview(ed: &mut Editor, ctx: Ctx) {
     }
 }
 
+fn git_pull(ed: &mut Editor, _ctx: Ctx) {
+    crate::git::pull(ed);
+}
+
+fn git_push(ed: &mut Editor, _ctx: Ctx) {
+    crate::git::push(ed);
+}
+
 fn git_commit(ed: &mut Editor, _ctx: Ctx) {
     crate::git::open_commit(ed, false);
 }
@@ -1548,6 +1556,8 @@ commands! {
     toggle_fold: "Fold or unfold: a directory in the tree, a file's diff in the git buffer",
     git_stage: "Stage the file or hunk under the cursor (unstage it in the staged section)",
     git_close_preview: "Close the preview split",
+    git_pull: "Fetch and merge from the upstream (in the background)",
+    git_push: "Push the branch (sets origin as upstream the first time)",
     git_commit: "Commit the staged changes: write the message, then :write",
     git_commit_amend: "Amend the last commit: edit its message, then :write",
     zoom_in: "Bigger font",
