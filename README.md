@@ -254,34 +254,6 @@ cannot be converted faithfully: the converter extracts the keyword lists and
 node hints from `highlights.scm` and adds generic rules, giving a starting
 point to edit by hand. Drop the result in `~/.config/quin/syntax/`.
 
-## Code map
-
-The code favours plain functions and few abstractions; each file has a
-header comment saying what it is for.
-
-| File | What |
-|---|---|
-| `src/main.rs` | command line, window and input events (winit), presenting frames (softbuffer) |
-| `src/editor.rs` | the editor state and key dispatch |
-| `src/commands.rs` | every key-bound command, and the `COMMANDS` table |
-| `src/keymap.rs` | key type and the default keymaps (the tables are the source of truth for this README) |
-| `src/typed.rs` | `:` commands |
-| `src/overlays.rs` | prompts and pickers: search, file/buffer/command pickers, global search |
-| `src/picker.rs` | fuzzy matching, picker and prompt widgets |
-| `src/buffer.rs` | a buffer: rope, file, language, undo history |
-| `src/selection.rs`, `src/movement.rs` | ranges and motions (word motions are ported from Helix) |
-| `src/history.rs` | transactions and undo/redo |
-| `src/frame.rs` | views, split tree, tabs |
-| `src/terminal.rs` | pty + terminal emulator (`vte`) |
-| `src/tree.rs` | the file tree sidebar and how its edits become file operations |
-| `src/install.rs` | `quin install`: binary, desktop entry and icon under the home directory |
-| `src/syntax/` | `.syn` format parser, highlighter, language registry, converters |
-| `src/theme.rs` | themes and style resolution |
-| `src/render/` | pixel painter, fonts (discovery, glyph cache, ligature shaping), line layout, drawing the UI |
-| `src/files.rs`, `src/search.rs`, `src/clipboard.rs`, `src/config.rs` | directory walking and background grep, regex search, clipboard, configuration |
-| `src/tests.rs` | end-to-end tests that replay key sequences |
-
-`cargo test` runs the unit and end-to-end tests; `cargo clippy` is clean.
 
 ## Limitations and ideas
 
