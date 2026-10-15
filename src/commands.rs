@@ -187,6 +187,13 @@ fn enter_insert(ed: &mut Editor) {
     ed.set_mode(Mode::Insert);
 }
 
+/// Typing on the welcome page swaps it for an empty scratch buffer first.
+fn leave_welcome(ed: &mut Editor) {
+    if ed.buffer().welcome.is_some() {
+        crate::welcome::leave_for_scratch(ed);
+    }
+}
+
 fn window_move(ed: &mut Editor, dir: Direction) {
     let focused = ed.focused_view();
     if let Some(target) = frame::neighbor(&ed.frame_rects, focused, dir) {
@@ -724,16 +731,19 @@ pub fn pending_char(ed: &mut Editor, pending: PendingChar, c: char, ctx: Ctx) {
 // ---------------------------------------------------------------------------
 
 fn insert_mode(ed: &mut Editor, _ctx: Ctx) {
+    leave_welcome(ed);
     map_selection(ed, |text, r| Range::point(r.span(text).0));
     enter_insert(ed);
 }
 
 fn append_mode(ed: &mut Editor, _ctx: Ctx) {
+    leave_welcome(ed);
     map_selection(ed, |text, r| Range::point(r.span(text).1));
     enter_insert(ed);
 }
 
 fn insert_at_line_start(ed: &mut Editor, _ctx: Ctx) {
+    leave_welcome(ed);
     map_selection(ed, |text, r| {
         let line = text.char_to_line(r.span(text).0);
         let start = text.line_to_char(line);
@@ -748,6 +758,7 @@ fn insert_at_line_start(ed: &mut Editor, _ctx: Ctx) {
 }
 
 fn insert_at_line_end(ed: &mut Editor, _ctx: Ctx) {
+    leave_welcome(ed);
     map_selection(ed, |text, r| {
         let (from, to) = r.span(text);
         let line = text.char_to_line(to.saturating_sub(1).max(from));
@@ -757,6 +768,7 @@ fn insert_at_line_end(ed: &mut Editor, _ctx: Ctx) {
 }
 
 fn open_line(ed: &mut Editor, below: bool) {
+    leave_welcome(ed);
     if ed.buffer().readonly {
         ed.set_error("buffer is read-only");
         return;
@@ -803,6 +815,7 @@ fn delete_selection_noyank(ed: &mut Editor, _ctx: Ctx) {
 }
 
 fn change_selection(ed: &mut Editor, ctx: Ctx) {
+    leave_welcome(ed);
     if ed.buffer().readonly {
         ed.set_error("buffer is read-only");
         return;
@@ -1377,11 +1390,27 @@ fn activate_line(ed: &mut Editor, _ctx: Ctx) {
         crate::tree::activate(ed);
     } else if ed.buffer().git {
         crate::git::activate(ed);
+    } else if ed.buffer().welcome.is_some() {
+        crate::welcome::activate(ed);
     }
 }
 
 fn git_status(ed: &mut Editor, _ctx: Ctx) {
     crate::git::open_status(ed);
+}
+
+/// `-` in the tree: show the parent directory (the working directory stays).
+fn tree_parent(ed: &mut Editor, _ctx: Ctx) {
+    if ed.buffer().tree {
+        crate::tree::go_to_parent(ed);
+    }
+}
+
+/// `S-ret` in the tree: change the working directory to the entry under the cursor.
+fn tree_cd(ed: &mut Editor, _ctx: Ctx) {
+    if ed.buffer().tree {
+        crate::tree::cd_under_cursor(ed);
+    }
 }
 
 fn git_stage(ed: &mut Editor, _ctx: Ctx) {
@@ -1551,9 +1580,11 @@ commands! {
     resize_narrower: "Make the frame narrower",
     resize_reset: "Give every frame of the tab its default size",
     tree_toggle: "Show or hide the file tree sidebar",
-    activate_line: "In the tree or git buffer: open the file (or fold the directory) under the cursor",
+    activate_line: "In the tree, git or welcome buffer: open the entry (or fold the directory) under the cursor",
     git_status: "Open the git status buffer in its own tab",
     toggle_fold: "Fold or unfold: a directory in the tree, a file's diff in the git buffer",
+    tree_cd: "In the tree: make the directory under the cursor the working directory",
+    tree_parent: "In the tree: show the parent directory (the working directory stays)",
     git_stage: "Stage the file or hunk under the cursor (unstage it in the staged section)",
     git_close_preview: "Close the preview split",
     git_pull: "Fetch and merge from the upstream (in the background)",

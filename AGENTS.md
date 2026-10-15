@@ -96,6 +96,9 @@ window, with buffers like neovim". Nothing more.
   `space` stays the leader key everywhere. The git buffer's keys live in
   `GIT_KEYS` and are tried before the normal keymap.
 - Default font: the embedded Iosevka.
+- Starting without a file shows the welcome buffer (`welcome.rs`): logo,
+  greeting, five recent entries kept in `<config dir>/recent`; `ret` opens,
+  insert swaps it for a scratch buffer. Keep it a plain buffer.
 - `p`/`P` are vim's visual-mode paste: they replace the selection; `p` puts
   the replaced text on the clipboard, `P` does not. `r` replaces the character
   under the cursor; `R` enters replace mode.

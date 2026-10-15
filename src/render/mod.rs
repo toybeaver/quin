@@ -173,6 +173,31 @@ impl<'a> Painter<'a> {
     /// Blit a coverage bitmap (one byte per pixel) at `x, y` in `color`.
     /// `shear` shifts each row to the right proportionally to its distance from
     /// the bottom, which is how italics are faked with an upright font.
+    /// Draw an RGBA image (8 bits per channel, rows top to bottom) at (x, y),
+    /// blending it over what is there by its alpha.
+    pub fn blit_rgba(&mut self, x: i32, y: i32, w: usize, h: usize, rgba: &[u8]) {
+        for row in 0..h {
+            let py = y + row as i32;
+            if py < self.clip.y || py >= self.clip.bottom() {
+                continue;
+            }
+            for col in 0..w {
+                let px = x + col as i32;
+                if px < self.clip.x || px >= self.clip.right() {
+                    continue;
+                }
+                let p = (row * w + col) * 4;
+                let (color, alpha) = (Color::rgb(rgba[p], rgba[p + 1], rgba[p + 2]), rgba[p + 3]);
+                if alpha == 0 {
+                    continue;
+                }
+                let i = py as usize * self.width + px as usize;
+                let under = Color::from_u32(self.pixels[i]);
+                self.pixels[i] = color.blend_over(under, alpha).to_u32();
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn blit_mask(&mut self, x: i32, y: i32, w: usize, h: usize, mask: &[u8], color: Color, shear: f32) {
         for row in 0..h {

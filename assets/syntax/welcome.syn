@@ -1,0 +1,10 @@
+# The welcome buffer: title, greeting, recent entries and key hints.
+
+name          welcome
+
+match heading.1   ^quin$
+style heading.1   bold size=2.2
+match strong      ^Recent$
+match directory   '^  .*/$'
+match comment     ^·.*$
+match comment     '^Recent files and directories will show up here\.$'

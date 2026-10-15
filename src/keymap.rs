@@ -344,6 +344,8 @@ pub const NORMAL_KEYS: &[(&str, &str)] = &[
     ("A-e", "tree_toggle"),
     ("space l", "git_status"),
     ("ret", "activate_line"),
+    ("S-ret", "tree_cd"),
+    ("-", "tree_parent"),
     ("tab", "toggle_fold"),
     ("C-=", "zoom_in"),
     ("C-+", "zoom_in"),

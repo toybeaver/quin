@@ -158,8 +158,8 @@ fn draw_tab_bar(ed: &mut Editor, ui: &mut Ui, rect: Rect) {
 
 /// Width of the line-number gutter in pixels.
 fn gutter_width(ed: &Editor, buffer: &Buffer, cell_w: f32) -> i32 {
-    if !ed.config.line_numbers || buffer.is_terminal() {
-        return (cell_w * 1.0) as i32;
+    if !ed.config.line_numbers || buffer.is_terminal() || buffer.welcome.is_some() {
+        return (cell_w * 2.0) as i32;
     }
     let digits = buffer.line_count().max(1).to_string().len().max(3);
     (cell_w * (digits + 2) as f32) as i32
@@ -168,9 +168,18 @@ fn gutter_width(ed: &Editor, buffer: &Buffer, cell_w: f32) -> i32 {
 fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused: bool) {
     let buffer_id = ed.views[&view_id].buffer;
     let is_terminal = ed.buffers[&buffer_id].is_terminal();
+    let show_numbers = ed.config.line_numbers && ed.buffers[&buffer_id].welcome.is_none();
     let cell_w = ui.font.cell_w;
     let cell_h = ui.font.cell_h;
     let gutter = gutter_width(ed, &ed.buffers[&buffer_id], cell_w);
+    // The welcome page carries the logo above its text.
+    let offset = welcome_offset(&ed.buffers[&buffer_id]);
+    if offset > 0 {
+        ui.painter.set_clip(rect);
+        let size = crate::welcome::LOGO_SIZE;
+        ui.painter.blit_rgba(rect.x + gutter, rect.y + 12, size, size, crate::welcome::LOGO_RGBA);
+    }
+    let rect = Rect::new(rect.x, rect.y + offset, rect.w, (rect.h - offset).max(0));
     let text_rect = Rect::new(rect.x + gutter, rect.y, (rect.w - gutter).max(0), rect.h);
 
     {
@@ -279,7 +288,7 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
             ui.painter.fill_rect(line_rect, cursorline_color);
         }
         // Gutter.
-        if ed.config.line_numbers {
+        if show_numbers {
             let number = if ed.config.relative_line_numbers && *line != cursor_line {
                 (*line as isize - cursor_line as isize).unsigned_abs()
             } else {
@@ -412,6 +421,11 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
         }
     }
     ui.painter.reset_clip();
+}
+
+/// Pixels the welcome page's text sits below its logo.
+fn welcome_offset(buffer: &Buffer) -> i32 {
+    if buffer.welcome.is_some() { crate::welcome::LOGO_SIZE as i32 + 24 } else { 0 }
 }
 
 /// One line of a frame, laid out and ready to draw.
@@ -996,6 +1010,8 @@ pub fn position_at(ed: &mut Editor, font: &FontSet, view_id: ViewId, rect: Rect,
     let buffer_id = ed.views[&view_id].buffer;
     let buffer = &ed.buffers[&buffer_id];
     let gutter = gutter_width(ed, buffer, font.cell_w);
+    let offset = welcome_offset(buffer);
+    let rect = Rect::new(rect.x, rect.y + offset, rect.w, (rect.h - offset).max(0));
     let text_x = rect.x + gutter;
     if buffer.is_terminal() {
         let view = &ed.views[&view_id];

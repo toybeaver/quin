@@ -32,6 +32,8 @@ pub struct Buffer {
     pub git: bool,
     /// A commit message being written (`Some(true)` amends the last commit).
     pub commit: Option<bool>,
+    /// The welcome buffer: the recent entry behind each line.
+    pub welcome: Option<Vec<Option<PathBuf>>>,
     /// Bumped on every edit; views use it to know when to recompute layout.
     pub version: u64,
     pub indent: IndentStyle,
@@ -57,6 +59,7 @@ impl Buffer {
             tree: false,
             git: false,
             commit: None,
+            welcome: None,
             version: 0,
             indent: DEFAULT_INDENT,
             crlf: false,
@@ -149,6 +152,9 @@ impl Buffer {
         }
         if self.commit.is_some() {
             return "[commit]".to_string();
+        }
+        if self.welcome.is_some() {
+            return "[welcome]".to_string();
         }
         match &self.path {
             Some(path) => relative_to_cwd(path),

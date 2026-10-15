@@ -473,6 +473,30 @@ fn tree_sidebar_opens_folds_and_edits_files() {
     keys(&mut ed, "j tab k");
     assert_eq!(text(&ed), "src/\n  lib.rs\nnotes.md\n", "tab on a file does nothing");
     assert!(ed.buffer().tree);
+    // S-ret makes the entry's directory the working directory; the tree follows.
+    keys(&mut ed, "S-ret");
+    assert_eq!(ed.cwd, dir.join("src"));
+    assert_eq!(text(&ed), "lib.rs\n", "the tree now shows the new working directory");
+    assert_eq!(ed.root().leaves().len(), 2, "nothing closed");
+    keys(&mut ed, "S-ret");
+    assert_eq!(ed.cwd, dir.join("src"), "on a file: its directory, which is the same here");
+    keys(&mut ed, &format!(": text:cd space text:{} ret", dir.display()));
+    assert_eq!(text(&ed), "src/\nnotes.md\n", ":cd re-renders the tree too");
+    keys(&mut ed, "g g ret");
+    assert_eq!(text(&ed), "src/\n  lib.rs\nnotes.md\n");
+    // `-` shows the parent without changing the working directory; reopening resets.
+    let name = dir.file_name().unwrap().to_string_lossy().into_owned();
+    keys(&mut ed, "-");
+    assert_eq!(ed.cwd, dir, "cwd unchanged");
+    let listing = text(&ed);
+    assert!(
+        listing.contains(&format!("{name}/\n  src/\n    lib.rs\n  notes.md\n")),
+        "the directory we came from stays unfolded: {listing}"
+    );
+    keys(&mut ed, "A-e A-e");
+    assert_eq!(text(&ed), "src/\nnotes.md\n", "reopened: back at the working directory");
+    keys(&mut ed, "g g ret");
+    assert_eq!(text(&ed), "src/\n  lib.rs\nnotes.md\n");
     keys(&mut ed, "j ret");
     assert!(!ed.buffer().tree, "a file opens in the other frame");
     assert_eq!(text(&ed), "lib");
@@ -888,5 +912,41 @@ fn git_status_marks_the_tree_and_the_status_line() {
     assert_eq!(ed.tabs.len(), 3);
     let line = ed.buffer().line_of(cursor(&ed));
     assert_eq!(ed.buffer().line_text(line), "## Git status buffer");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn welcome_page_lists_recent_entries_and_opens_them() {
+    let dir = std::env::temp_dir().join(format!("quin-welcome-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("proj")).unwrap();
+    std::fs::write(dir.join("note.txt"), "hello").unwrap();
+    let mut ed = editor_with("");
+    // Opening a file and changing directory both remember the path.
+    keys(&mut ed, &format!(": text:open space text:{} ret", dir.join("note.txt").display()));
+    keys(&mut ed, &format!(": text:cd space text:{} ret", dir.join("proj").display()));
+    crate::welcome::open(&mut ed);
+    assert!(ed.buffer().welcome.is_some() && ed.buffer().readonly);
+    let page = text(&ed);
+    assert!(page.starts_with("quin\n"), "{page}");
+    let line = ed.buffer().line_of(cursor(&ed));
+    assert!(ed.buffer().line_text(line).ends_with("proj/"), "the cursor starts on the most recent entry: {page}");
+    keys(&mut ed, "j ret");
+    assert_eq!(text(&ed), "hello", "ret on a file opens it");
+    assert!(ed.buffers.values().all(|b| b.welcome.is_none()), "the welcome buffer is gone");
+    crate::welcome::open(&mut ed);
+    keys(&mut ed, "ret");
+    assert_eq!(ed.cwd, dir.join("proj").canonicalize().unwrap_or(dir.join("proj")), "ret on a directory moves there");
+    assert!(ed.buffer().welcome.is_none() && !ed.buffer().readonly && text(&ed).is_empty(), "and the page gives way to a scratch buffer");
+    crate::welcome::open(&mut ed);
+    keys(&mut ed, "i text:typed esc");
+    assert!(ed.buffer().welcome.is_none() && !ed.buffer().readonly);
+    assert_eq!(text(&ed), "typed", "typing swaps the page for a scratch buffer");
+    // Files picked from inside a directory are not recent entries; only `:open <path>` is.
+    let before = crate::welcome::recent();
+    keys(&mut ed, &format!(": text:cd space text:{} ret space e text:note ret", dir.display()));
+    assert_eq!(text(&ed), "hello");
+    let after = crate::welcome::recent();
+    assert_eq!(after.iter().filter(|p| p.ends_with("note.txt")).count(), before.iter().filter(|p| p.ends_with("note.txt")).count());
+    assert_eq!(after[0], dir.canonicalize().unwrap_or(dir.clone()), "the cd is remembered");
     std::fs::remove_dir_all(&dir).unwrap();
 }

@@ -58,6 +58,17 @@ Everything is also reachable without a window: `quin --screenshot out.ppm
 --keys "space e" file.rs` renders one frame to an image, which is how the UI is
 tested (`wait` in the key list lets a shell or a search finish).
 
+## The welcome page
+
+Started without a file, quin shows a welcome page: the logo, a greeting and
+the five most recent entries (remembered in `recent` next to the config
+file): directories moved into with `:cd` or given on the command line, and
+files opened by name with `:open` or on the command line. Files picked from
+inside a directory do not count. The cursor starts on the most recent entry;
+`ret` opens a file, or makes a directory the working directory and leaves
+the page in a scratch buffer, as does `i`, `a` or any other way into insert
+mode. Everything else works as in any buffer.
+
 ## The basics
 
 quin is modal, like Helix (and Kakoune): **selection first, then action**.
@@ -107,7 +118,7 @@ a key repeats it (`3w`, `10j`). `:help` opens the same list inside the editor.
 | `C-o` `C-i` | jump backward / forward in the jump list |
 | `%` | select the whole buffer |
 | `C-=` `C-+` / `C--` | bigger / smaller font (any mode) |
-| `ret` | in the tree sidebar: open the file or fold the directory; `tab` folds directories only |
+| `ret` | in the tree sidebar: open the file or fold the directory; `tab` folds directories only; `S-ret` changes the working directory |
 | `gg` / `ge` | file start / file end (`3gg` goes to line 3) |
 | `gh` `gl` `gs` | line start / last character / first non-blank character |
 | `gn` `gp` | next / previous buffer |
@@ -216,6 +227,12 @@ directory. It is a buffer like any other, in the spirit of oil.nvim:
 
 - `ret` on a directory folds or unfolds it (`tab` does too); `ret` on a file
   opens it in the frame the tree was opened from (the tree stays open).
+- `S-ret` makes the directory under the cursor (or the file's directory) the
+  working directory; the tree then shows it. Nothing closes, except a
+  welcome page if one is open.
+- `-` shows the parent directory, with the one you came from unfolded, while
+  the working directory stays put; `:cd` or closing and reopening the tree
+  brings it back to the working directory.
 - Edit the text to change the file system, then `:write`: a changed name
   renames, a new line creates (a trailing `/` makes a directory, indentation
   of two spaces per level puts it inside the directory above), a line moved

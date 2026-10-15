@@ -31,6 +31,9 @@ pub struct Tree {
     pub return_view: Option<ViewId>,
     /// Deletions shown on the last `:write`, applied by the next one.
     pending_deletes: Vec<PathBuf>,
+    /// `-` moved the root above the working directory: keep it there until
+    /// the directory changes or the tree is reopened.
+    browsing: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -58,6 +61,7 @@ pub fn toggle(ed: &mut Editor) {
                 entries: Vec::new(),
                 return_view: None,
                 pending_deletes: Vec::new(),
+                browsing: false,
             });
             render(ed);
             id
@@ -66,7 +70,21 @@ pub fn toggle(ed: &mut Editor) {
     ed.split_root(Dir::Horizontal, buffer, SIDEBAR_FRACTION);
     if let Some(tree) = &mut ed.tree {
         tree.return_view = Some(previous);
+        // Reopening always starts from the working directory.
+        tree.browsing = false;
     }
+    render(ed);
+}
+
+/// `-`: show the parent of the current root (the working directory stays),
+/// with the directory we came from unfolded.
+pub fn go_to_parent(ed: &mut Editor) {
+    let Some(tree) = &mut ed.tree else { return };
+    let Some(parent) = tree.root.parent().map(Path::to_path_buf) else { return };
+    let from = std::mem::replace(&mut tree.root, parent);
+    tree.expanded.insert(from);
+    tree.browsing = true;
+    render(ed);
 }
 
 /// The frame of the current tab showing the tree, if any.
@@ -75,10 +93,18 @@ fn tree_view(ed: &Editor) -> Option<ViewId> {
     ed.root().leaves().into_iter().find(|v| ed.views[v].buffer == tree.buffer)
 }
 
+/// The working directory changed: the tree shows it again.
+pub fn follow_cwd(ed: &mut Editor) {
+    if let Some(tree) = &mut ed.tree {
+        tree.browsing = false;
+    }
+    render(ed);
+}
+
 /// Rebuild the text from the directory tree and the set of expanded directories.
 pub fn render(ed: &mut Editor) {
     let Some(tree) = &mut ed.tree else { return };
-    if tree.root != ed.cwd {
+    if tree.root != ed.cwd && !tree.browsing {
         tree.root = ed.cwd.clone();
         tree.expanded.clear();
     }
@@ -140,6 +166,16 @@ pub fn activate(ed: &mut Editor) {
         return;
     }
     open_in_return_view(ed, &entry.path);
+}
+
+/// `S-ret`: make the directory under the cursor (or the directory of the
+/// file under it) the working directory; the tree then shows it.
+pub fn cd_under_cursor(ed: &mut Editor) {
+    let Some(entry) = entry_under_cursor(ed) else { return };
+    let target = if entry.is_dir { entry.path.clone() } else { entry.path.parent().map(Path::to_path_buf).unwrap_or(entry.path.clone()) };
+    if let Err(err) = crate::typed::cd(ed, &target) {
+        ed.set_error(err);
+    }
 }
 
 /// `tab`: fold or unfold the directory under the cursor (nothing on a file).

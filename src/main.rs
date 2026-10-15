@@ -27,6 +27,7 @@ mod tests;
 mod theme;
 mod tree;
 mod typed;
+mod welcome;
 
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
@@ -139,19 +140,25 @@ fn build_editor(paths: &[PathBuf]) -> Editor {
         if path.is_dir() {
             if std::env::set_current_dir(path).is_ok() {
                 editor.cwd = buffer::absolute(path);
+                welcome::remember(path);
             }
         } else {
             match editor.open_file(path) {
-                Ok(id) => opened.push(id),
+                Ok(id) => {
+                    opened.push(id);
+                    welcome::remember(path);
+                }
                 Err(err) => eprintln!("quin: {err}"),
             }
         }
     }
-    if let Some(first) = opened.first() {
-        let scratch = editor.view().buffer;
-        editor.show_buffer(*first);
-        let _ = editor.close_buffer(scratch, true);
+    let scratch = editor.view().buffer;
+    match opened.first() {
+        Some(first) => editor.show_buffer(*first),
+        // Nothing to edit yet: the welcome buffer with the recent entries.
+        None => welcome::open(&mut editor),
     }
+    let _ = editor.close_buffer(scratch, true);
     editor
 }
 

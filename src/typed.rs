@@ -130,6 +130,10 @@ fn open(ed: &mut Editor, args: &[String]) -> Result<(), String> {
                 return change_directory(ed, &[path.to_string_lossy().into_owned()]);
             }
             overlays::open_path(ed, &path, None, crate::picker::OpenMode::Here);
+            // Only files opened by name this way count as recent.
+            if ed.buffer().path.as_deref() == Some(crate::buffer::absolute(&path).as_path()) {
+                crate::welcome::remember(&path);
+            }
             Ok(())
         }
     }
@@ -228,9 +232,30 @@ fn change_directory(ed: &mut Editor, args: &[String]) -> Result<(), String> {
         Some(dir) => crate::buffer::absolute(&crate::files::expand_home(dir)),
         None => std::env::var_os("HOME").map(std::path::PathBuf::from).ok_or("no HOME")?,
     };
-    std::env::set_current_dir(&target).map_err(|e| format!("{}: {e}", target.display()))?;
-    ed.cwd = target.clone();
+    cd(ed, &target)
+}
+
+/// Make `target` the working directory (`:cd`, the welcome page, `:open` on
+/// a directory). Leaving the welcome page this way lands in a scratch buffer.
+pub fn cd(ed: &mut Editor, target: &std::path::Path) -> Result<(), String> {
+    std::env::set_current_dir(target).map_err(|e| format!("{}: {e}", target.display()))?;
+    ed.cwd = target.to_path_buf();
     ed.file_list = None;
+    crate::welcome::remember(target);
+    // The welcome page belongs to the directory it was opened in: every
+    // frame showing it gets a scratch buffer instead.
+    let welcomes: Vec<crate::buffer::BufferId> = ed.buffers.values().filter(|b| b.welcome.is_some()).map(|b| b.id).collect();
+    for welcome in welcomes {
+        let scratch = ed.new_scratch_buffer();
+        for view in ed.views.values_mut().filter(|v| v.buffer == welcome) {
+            view.switch_buffer(scratch);
+        }
+        let _ = ed.close_buffer(welcome, true);
+    }
+    // The tree follows the working directory.
+    if ed.tree.is_some() {
+        crate::tree::follow_cwd(ed);
+    }
     ed.set_message(format!("cwd: {}", target.display()));
     Ok(())
 }
@@ -275,7 +300,9 @@ fn sh(ed: &mut Editor, args: &[String]) -> Result<(), String> {
 
 const HELP_TREE: &str = "\
 The file tree (`A-e`, `:tree`) is a buffer: `ret` opens a file or folds a
-directory (`tab` folds directories too), and editing the text then `:write` renames, creates (a trailing `/`
+directory (`tab` folds directories too), `S-ret` changes the working
+directory to the entry under the cursor, `-` shows the parent directory
+without changing it, and editing the text then `:write` renames, creates (a trailing `/`
 makes a directory), moves and deletes entries; deletes need a second `:write`.
 Git marks: changed files orange, new files green, `* ` before directories
 with changes inside.
