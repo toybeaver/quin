@@ -1384,33 +1384,36 @@ fn tree_toggle(ed: &mut Editor, _ctx: Ctx) {
     crate::tree::toggle(ed);
 }
 
-/// `ret` in normal mode: meaningful in the tree (open / fold), nothing elsewhere.
+/// `ret` in normal mode: opens the entry under the cursor on the welcome
+/// page (the tree and git buffers have keys of their own), nothing elsewhere.
 fn activate_line(ed: &mut Editor, _ctx: Ctx) {
-    if ed.buffer().tree {
-        crate::tree::activate(ed);
-    } else if ed.buffer().git {
-        crate::git::activate(ed);
-    } else if ed.buffer().welcome.is_some() {
+    if ed.buffer().welcome.is_some() {
         crate::welcome::activate(ed);
     }
+}
+
+fn tree_activate(ed: &mut Editor, _ctx: Ctx) {
+    crate::tree::activate(ed);
+}
+
+fn tree_fold(ed: &mut Editor, _ctx: Ctx) {
+    crate::tree::toggle_directory(ed);
 }
 
 fn git_status(ed: &mut Editor, _ctx: Ctx) {
     crate::git::open_status(ed);
 }
 
-/// `-` in the tree: show the parent directory (the working directory stays).
 fn tree_parent(ed: &mut Editor, _ctx: Ctx) {
-    if ed.buffer().tree {
-        crate::tree::go_to_parent(ed);
-    }
+    crate::tree::go_to_parent(ed);
 }
 
-/// `S-ret` in the tree: change the working directory to the entry under the cursor.
 fn tree_cd(ed: &mut Editor, _ctx: Ctx) {
-    if ed.buffer().tree {
-        crate::tree::cd_under_cursor(ed);
-    }
+    crate::tree::cd_under_cursor(ed);
+}
+
+fn git_activate(ed: &mut Editor, _ctx: Ctx) {
+    crate::git::activate(ed);
 }
 
 fn git_stage(ed: &mut Editor, _ctx: Ctx) {
@@ -1440,14 +1443,9 @@ fn git_commit_amend(ed: &mut Editor, _ctx: Ctx) {
     crate::git::open_commit(ed, true);
 }
 
-/// `tab` in normal mode: in the git buffer, fold or unfold a file's diff; in
-/// the tree, fold or unfold a directory.
+/// `tab` in the git buffer: fold or unfold a file's diff.
 fn toggle_fold(ed: &mut Editor, _ctx: Ctx) {
-    if ed.buffer().git {
-        crate::git::toggle_diff(ed);
-    } else if ed.buffer().tree {
-        crate::tree::toggle_directory(ed);
-    }
+    crate::git::toggle_diff(ed);
 }
 
 fn zoom(ed: &mut Editor, delta: f32) {
@@ -1580,11 +1578,14 @@ commands! {
     resize_narrower: "Make the frame narrower",
     resize_reset: "Give every frame of the tab its default size",
     tree_toggle: "Show or hide the file tree sidebar",
-    activate_line: "In the tree, git or welcome buffer: open the entry (or fold the directory) under the cursor",
+    activate_line: "On the welcome page: open the entry under the cursor",
+    tree_activate: "Open the file, or fold or unfold the directory, under the cursor",
+    tree_fold: "Fold or unfold the directory under the cursor",
     git_status: "Open the git status buffer in its own tab",
-    toggle_fold: "Fold or unfold: a directory in the tree, a file's diff in the git buffer",
-    tree_cd: "In the tree: make the directory under the cursor the working directory",
-    tree_parent: "In the tree: show the parent directory (the working directory stays)",
+    toggle_fold: "Show or hide the diff of the file under the cursor",
+    tree_cd: "Make the directory under the cursor (or the file's directory) the working directory",
+    tree_parent: "Show the parent directory; the working directory stays",
+    git_activate: "Open the file (at the hunk's line) in the preview split on the right",
     git_stage: "Stage the file or hunk under the cursor (unstage it in the staged section)",
     git_close_preview: "Close the preview split",
     git_pull: "Fetch and merge from the upstream (in the background)",

@@ -307,6 +307,13 @@ impl Prompt {
         self.cursor = self.text.chars().count();
     }
 
+    /// Insert text at the cursor (pasting).
+    pub fn insert(&mut self, text: &str) {
+        let at = self.byte_cursor();
+        self.text.insert_str(at, text);
+        self.cursor += text.chars().count();
+    }
+
     fn byte_cursor(&self) -> usize {
         self.text.char_indices().nth(self.cursor).map(|(i, _)| i).unwrap_or(self.text.len())
     }

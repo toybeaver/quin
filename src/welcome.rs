@@ -24,7 +24,9 @@ const KEPT: usize = 50;
 /// use a scratch file so they never touch the real list.
 fn recent_file() -> Option<PathBuf> {
     if cfg!(test) {
-        return Some(std::env::temp_dir().join(format!("quin-test-recent-{}", std::process::id())));
+        // One list per test thread: tests run in parallel and must not see each other's entries.
+        let thread = format!("{:?}", std::thread::current().id()).replace(['(', ')'], "");
+        return Some(std::env::temp_dir().join(format!("quin-test-recent-{}-{thread}", std::process::id())));
     }
     crate::config::config_dir().map(|d| d.join("recent"))
 }

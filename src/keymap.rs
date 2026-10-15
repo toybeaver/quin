@@ -232,6 +232,8 @@ pub struct Keymaps {
     pub terminal: Keymap,
     /// Extra bindings while the git status buffer is focused (tried first).
     pub git: Keymap,
+    /// Extra bindings while the file tree is focused (tried first).
+    pub tree: Keymap,
 }
 
 impl Keymaps {
@@ -250,6 +252,7 @@ impl Keymaps {
             insert: Keymap::from_table("insert", INSERT_KEYS, &[]),
             terminal: Keymap::from_table("terminal", TERMINAL_KEYS, &[]),
             git: Keymap::from_table("git", GIT_KEYS, &[("c", "commit")]),
+            tree: Keymap::from_table("tree", TREE_KEYS, &[]),
         }
     }
 }
@@ -344,9 +347,6 @@ pub const NORMAL_KEYS: &[(&str, &str)] = &[
     ("A-e", "tree_toggle"),
     ("space l", "git_status"),
     ("ret", "activate_line"),
-    ("S-ret", "tree_cd"),
-    ("-", "tree_parent"),
-    ("tab", "toggle_fold"),
     ("C-=", "zoom_in"),
     ("C-+", "zoom_in"),
     ("C--", "zoom_out"),
@@ -396,9 +396,12 @@ pub const INSERT_KEYS: &[(&str, &str)] = &[
     ("C--", "zoom_out"),
 ];
 
+/// Bindings of the file tree (`A-e`), on top of normal mode.
+pub const TREE_KEYS: &[(&str, &str)] = &[("ret", "tree_activate"), ("tab", "tree_fold"), ("S-ret", "tree_cd"), ("-", "tree_parent")];
+
 /// Bindings of the git status buffer (`space l`), on top of normal mode.
 pub const GIT_KEYS: &[(&str, &str)] = &[
-    ("ret", "activate_line"),
+    ("ret", "git_activate"),
     ("tab", "toggle_fold"),
     ("s", "git_stage"),
     ("esc", "git_close_preview"),

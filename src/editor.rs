@@ -803,13 +803,16 @@ impl Editor {
             Mode::Select => &self.keymaps.select,
             _ => &self.keymaps.normal,
         };
-        // The git status buffer has bindings of its own, tried first.
+        // The git status buffer and the file tree have bindings of their own, tried first.
         let pending = &self.pending_keys;
-        let found = if self.buffer().git {
-            lookup_key(&self.keymaps.git, pending, key).or_else(|| lookup_key(keymap, pending, key))
+        let special = if self.buffer().git {
+            Some(&self.keymaps.git)
+        } else if self.buffer().tree {
+            Some(&self.keymaps.tree)
         } else {
-            lookup_key(keymap, pending, key)
+            None
         };
+        let found = special.and_then(|map| lookup_key(map, pending, key)).or_else(|| lookup_key(keymap, pending, key));
         let node = found.map(|found| match found {
             KeyNode::Command(cmd) => Ok(*cmd),
             KeyNode::Menu(_) => Err(()),

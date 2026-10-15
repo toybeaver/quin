@@ -4,7 +4,6 @@ use std::process::{Command as Process, Stdio};
 
 use crate::commands;
 use crate::editor::{Editor, Mode};
-use crate::keymap::Keymap;
 use crate::overlays;
 use crate::picker::PromptKind;
 
@@ -299,13 +298,14 @@ fn sh(ed: &mut Editor, args: &[String]) -> Result<(), String> {
 }
 
 const HELP_TREE: &str = "\
-The file tree (`A-e`, `:tree`) is a buffer: `ret` opens a file or folds a
-directory (`tab` folds directories too), `S-ret` changes the working
-directory to the entry under the cursor, `-` shows the parent directory
-without changing it, and editing the text then `:write` renames, creates (a trailing `/`
-makes a directory), moves and deletes entries; deletes need a second `:write`.
-Git marks: changed files orange, new files green, `* ` before directories
-with changes inside.
+The file tree (`A-e`, `:tree`) is a sidebar buffer listing the working
+directory, in the spirit of oil.nvim. Files open in the frame the tree was
+opened from; the tree stays. Editing the text and then `:write` changes the
+file system: a changed name renames, a new line creates (a trailing `/` makes
+a directory, two spaces of indentation per level nest it), a line moved under
+another directory moves the entry, a removed line deletes it. Deletes are
+announced first and applied by a second `:write`. Git marks: changed files
+orange, new files green, `* ` before directories with changes inside.
 
 ";
 
@@ -326,7 +326,7 @@ fn help(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
         ("Normal mode", &ed.keymaps.normal, ""),
         ("Insert and replace mode", &ed.keymaps.insert, ""),
         ("Terminal mode", &ed.keymaps.terminal, ""),
-        ("File tree", &Keymap::default(), HELP_TREE),
+        ("File tree", &ed.keymaps.tree, HELP_TREE),
         ("Git status buffer", &ed.keymaps.git, HELP_GIT),
     ];
     for (title, map, intro) in maps {
@@ -334,7 +334,9 @@ fn help(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
         let mut bindings = map.bindings();
         bindings.sort_by(|a, b| a.1.name.cmp(b.1.name).then(a.0.cmp(&b.0)));
         for (keys, cmd) in bindings {
-            text.push_str(&format!("{keys:<16} {:<36} {}\n", cmd.name, cmd.doc));
+            // Backticks keep markdown from reading a key like `-` as a list marker.
+            let keys = format!("`{keys}`");
+            text.push_str(&format!("{keys:<18} {:<36} {}\n", cmd.name, cmd.doc));
         }
         text.push('\n');
     }

@@ -118,7 +118,7 @@ a key repeats it (`3w`, `10j`). `:help` opens the same list inside the editor.
 | `C-o` `C-i` | jump backward / forward in the jump list |
 | `%` | select the whole buffer |
 | `C-=` `C-+` / `C--` | bigger / smaller font (any mode) |
-| `ret` | in the tree sidebar: open the file or fold the directory; `tab` folds directories only; `S-ret` changes the working directory |
+| `ret` | on the welcome page: open the entry under the cursor (the tree and git buffers have their own keys, see below) |
 | `gg` / `ge` | file start / file end (`3gg` goes to line 3) |
 | `gh` `gl` `gs` | line start / last character / first non-blank character |
 | `gn` `gp` | next / previous buffer |
@@ -191,7 +191,8 @@ pastes one piece per cursor.
 
 Inside pickers: type to filter, `up`/`down` or `C-p`/`C-n` to move, `ret` to
 open, `C-v` / `C-s` to open in a vertical / horizontal split, `tab` to
-complete, `esc` to close. File, buffer and search pickers show a preview of
+complete, `C-S-v` to paste the clipboard (its first line), `esc` to close.
+The same paste works in the `/` and `s` prompts. File, buffer and search pickers show a preview of
 the highlighted item on the right: the start of the file, or, for search
 results, the matching line highlighted in the middle. The mouse wheel scrolls
 the preview, or the list when the pointer is over it.
@@ -203,6 +204,8 @@ opens as a new file.
 
 Global search runs in the background: results stream into the picker as you
 type (at most 2000), with the match highlighted. `ret` jumps to the line.
+After `*` (or `/`) set a search pattern, `space f` starts by searching for
+that pattern everywhere.
 
 #### Frames and tabs (`space w`)
 
@@ -225,14 +228,13 @@ type (at most 2000), with the match highlighted. `ret` jumps to the line.
 `A-e` or `:tree` toggles a sidebar on the right listing the working
 directory. It is a buffer like any other, in the spirit of oil.nvim:
 
-- `ret` on a directory folds or unfolds it (`tab` does too); `ret` on a file
-  opens it in the frame the tree was opened from (the tree stays open).
-- `S-ret` makes the directory under the cursor (or the file's directory) the
-  working directory; the tree then shows it. Nothing closes, except a
-  welcome page if one is open.
-- `-` shows the parent directory, with the one you came from unfolded, while
-  the working directory stays put; `:cd` or closing and reopening the tree
-  brings it back to the working directory.
+| Key | Action |
+|---|---|
+| `ret` | open the file in the frame the tree was opened from (the tree stays), or fold / unfold the directory |
+| `tab` | fold / unfold the directory |
+| `S-ret` | make the directory under the cursor (or the file's directory) the working directory; nothing closes, except a welcome page |
+| `-` | show the parent directory, with the one you came from unfolded, while the working directory stays; `:cd` or reopening the tree brings it back |
+
 - Edit the text to change the file system, then `:write`: a changed name
   renames, a new line creates (a trailing `/` makes a directory, indentation
   of two spaces per level puts it inside the directory above), a line moved

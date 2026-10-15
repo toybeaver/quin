@@ -950,3 +950,37 @@ fn welcome_page_lists_recent_entries_and_opens_them() {
     assert_eq!(after[0], dir.canonicalize().unwrap_or(dir.clone()), "the cd is remembered");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn clipboard_pastes_into_pickers_and_seeds_the_global_search() {
+    let dir = std::env::temp_dir().join(format!("quin-paste-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("a.txt"), "find me(here)\nnot this\n").unwrap();
+    let mut ed = editor_with("me(here)\n");
+    keys(&mut ed, &format!(": text:cd space text:{} ret", dir.display()));
+    // `*` on a selection sets the search pattern; space f searches it everywhere.
+    keys(&mut ed, "e *");
+    keys(&mut ed, "space f");
+    let Overlay::Picker(picker) = &ed.overlay else { panic!("no picker") };
+    assert_eq!(picker.query, "me");
+    for _ in 0..200 {
+        ed.poll_search();
+        if ed.live_search.as_ref().is_some_and(|s| s.done) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let Overlay::Picker(picker) = &ed.overlay else { panic!("no picker") };
+    assert_eq!(picker.items.len(), 1, "the pattern was found: {:?}", picker.items.iter().map(|i| &i.label).collect::<Vec<_>>());
+    // C-S-v pastes the clipboard's first line into a picker and a prompt.
+    keys(&mut ed, "esc x y");
+    assert_eq!(ed.clipboard.paste().unwrap(), "me(here)\n");
+    keys(&mut ed, ": C-S-v");
+    let Overlay::Picker(picker) = &ed.overlay else { panic!("no picker") };
+    assert_eq!(picker.query, "me(here)");
+    keys(&mut ed, "esc / text:x C-S-v");
+    let Overlay::Prompt(prompt) = &ed.overlay else { panic!("no prompt") };
+    assert_eq!(prompt.text, "xme(here)");
+    keys(&mut ed, "esc");
+    std::fs::remove_dir_all(&dir).unwrap();
+}

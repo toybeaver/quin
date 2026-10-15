@@ -23,9 +23,27 @@ pub fn open_prompt(ed: &mut Editor, kind: PromptKind, label: &str) {
     ed.overlay = Overlay::Prompt(Prompt::new(kind, label, origin, scroll));
 }
 
+/// `C-S-v` in a prompt or picker: the clipboard's first line, if any.
+fn pasted_line(ed: &mut Editor, key: Key) -> Option<String> {
+    if key != Key::parse("C-S-v").expect("valid key") {
+        return None;
+    }
+    let text = ed.clipboard.paste().ok()?;
+    let line = text.lines().next()?.trim();
+    (!line.is_empty()).then(|| line.to_string())
+}
+
 pub fn prompt_key(ed: &mut Editor, key: Key) {
+    let pasted = pasted_line(ed, key);
     let Overlay::Prompt(prompt) = &mut ed.overlay else { return };
-    match prompt.handle_key(key) {
+    let event = match pasted {
+        Some(text) => {
+            prompt.insert(&text);
+            PromptEvent::Changed
+        }
+        None => prompt.handle_key(key),
+    };
+    match event {
         PromptEvent::Pending => {}
         PromptEvent::Changed => {
             if let PromptKind::Search { reverse, extend } = prompt.kind {
@@ -374,6 +392,12 @@ pub fn open_language_picker(ed: &mut Editor) {
 /// in the background and the list fills in as hits arrive.
 pub fn open_global_search(ed: &mut Editor) {
     ed.overlay = Overlay::Picker(Picker::new(PickerKind::Locations, "global search", Vec::new()));
+    // A search pattern set with `*` (or `/`): look for it everywhere right away.
+    let pattern = ed.search.history.last().cloned().filter(|p| !p.trim().is_empty());
+    if let (Some(pattern), Overlay::Picker(picker)) = (pattern, &mut ed.overlay) {
+        picker.query = pattern;
+        restart_global_search(ed);
+    }
 }
 
 /// (Re)start the background search for the picker's current query.
@@ -417,10 +441,19 @@ pub fn add_search_results(ed: &mut Editor, hits: Vec<crate::files::GrepHit>) {
 }
 
 pub fn picker_key(ed: &mut Editor, key: Key) {
+    let pasted = pasted_line(ed, key);
     let Overlay::Picker(picker) = &mut ed.overlay else { return };
     let kind = picker.kind;
     let query_before = picker.query.clone();
-    match picker.handle_key(key) {
+    let event = match pasted {
+        Some(text) => {
+            picker.query.push_str(&text);
+            picker.filter();
+            PickerEvent::Pending
+        }
+        None => picker.handle_key(key),
+    };
+    match event {
         PickerEvent::Pending => match kind {
             PickerKind::Files => sync_file_picker(ed),
             PickerKind::Commands => sync_command_arguments(ed),
