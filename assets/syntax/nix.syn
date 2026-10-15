@@ -1,0 +1,36 @@
+# Nix — quin syntax definition.
+
+name          nix
+extensions    nix
+line-comment  #
+block-comment /* */
+indent        2 spaces
+auto-pairs    () [] {} ""
+
+keywords keyword.control  if then else assert with let in
+keywords keyword          rec inherit or
+keywords constant.builtin true false null
+keywords function.builtin import builtins derivation abort throw map filter toString baseNameOf dirOf removeAttrs fetchurl fetchGit fetchTarball
+
+# Comments
+region comment  #  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+region comment  /\*  \*/
+
+# Strings (indented strings use two single quotes)
+region string  "''"  "''(?:[^'$\\]|$)"
+  match string.special  \$\{[^}]*\}
+  match string.escape   "''(?:\$|\\|')"
+region string  '"'  '"'
+  match string.special  \$\{[^}]*\}
+  match string.escape   \\.
+
+# Paths, URLs
+match string.special  <[A-Za-z0-9_./-]+>
+match string.special  (?:~|\.\.?)?/[A-Za-z0-9_.+-]+(?:/[A-Za-z0-9_.+-]*)*
+match link.url        \b[a-z][a-z0-9+.-]*://[^\s"';]+
+
+# Attributes, numbers, operators
+match punctuation  \b([A-Za-z_][\w'-]*)\s*=(?:[^=]|$)   1:property
+match number       \b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b
+match operator     \+\+|//|->|==|!=|<=|>=|&&|\|\||[-+*/<>!?@:=]

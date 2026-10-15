@@ -1,0 +1,23 @@
+# JSON (and JSON with comments) — quin syntax definition.
+
+name          json
+extensions    json jsonc json5 geojson webmanifest
+filenames     .babelrc .eslintrc .prettierrc composer.lock
+line-comment  //
+block-comment /* */
+indent        2 spaces
+auto-pairs    () [] {} ""
+
+keywords constant.builtin true false null
+
+# Comments (not standard JSON, but common in config files)
+region comment  //  $
+region comment  /\*  \*/
+
+# Keys come before values so the lookup is cheap: a string followed by `:`.
+match punctuation  '("(?:[^"\\]|\\.)*")\s*:'   1:property
+region string  '"'  '"|$'
+  match string.escape  \\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})
+
+match number  -?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b
+match punctuation  [{}\[\],:]

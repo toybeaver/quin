@@ -1,0 +1,48 @@
+# Kotlin — quin syntax definition.
+
+name          kotlin
+extensions    kt kts
+line-comment  //
+block-comment /* */
+indent        4 spaces
+auto-pairs    () [] {} "" ''
+
+
+# Definitions: listed before the keyword lists so the name capture wins the tie.
+match keyword      \b(?:fun)\s+(?:<[^>]*>\s*)?(?:[A-Za-z_][\w.]*\.)?([A-Za-z_]\w*)   1:function
+match keyword      \b(?:class|interface|object|typealias)\s+([A-Za-z_]\w*)   1:type
+
+keywords keyword.control  if else when for while do break continue return throw try catch finally
+keywords keyword          fun val var class interface object enum sealed data abstract open final override inner inline noinline crossinline reified companion constructor init this super package import as is in out by get set lateinit const suspend operator infix tailrec external annotation typealias vararg where actual expect internal private protected public dynamic
+keywords type.builtin     Int Long Short Byte Float Double Boolean Char String Unit Nothing Any Array List MutableList Map MutableMap Set MutableSet Pair Triple IntArray
+keywords constant.builtin true false null
+
+# Comments
+region comment.doc  /\*\*  \*/
+  match attribute     @\w+
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+region comment  //  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+region comment  /\*  \*/
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Strings and chars
+region string  '"""'  '"""'
+  match string.special  \$\{[^}]*\}
+  match string.special  \$[A-Za-z_]\w*
+region string  '"'  '"|$'
+  match string.escape   \\(?:[tbnr'"\\$]|u[0-9a-fA-F]{4})
+  match string.special  \$\{[^}]*\}
+  match string.special  \$[A-Za-z_]\w*
+match char  "'(?:[^'\\]|\\.|\\u[0-9a-fA-F]{4})'"
+
+# Numbers
+match number  \b0[xX][0-9a-fA-F_]+[uU]?L?\b
+match number  \b0[bB][01_]+[uU]?L?\b
+match number  \b\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?[uU]?[fFL]?\b
+
+# Annotations, definitions, calls, types, operators
+match annotation   @[A-Za-z_][\w.:]*
+match punctuation  \b([A-Za-z_]\w*)\s*(?:<[^<>()]*>)?\s*[({]   1:function
+match type         \b[A-Z][A-Za-z0-9_]*\b
+match operator     \?:|\?\.|!!|->|\.\.<?|===?|!==?|<=|>=|&&|\|\||\+\+|--|[-+*/%=<>!&|^?:]

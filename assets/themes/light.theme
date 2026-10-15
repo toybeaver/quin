@@ -1,0 +1,123 @@
+# quin light theme.
+# Format: scope #rrggbb [bold] [italic] [underline]
+
+# --- UI ---
+ui.background        #fafafa
+ui.text              #383a42
+ui.cursor            #526fff
+ui.cursor.insert     #50a14f
+ui.cursor.secondary  #c6c8cc
+ui.cursor.inactive   #d8dae0
+ui.selection         #e5e5e6
+ui.selection.primary #d6dcf5
+ui.cursorline        #f0f0f1
+ui.linenr            #9d9d9f
+ui.linenr.current    #383a42
+ui.gutter            #fafafa
+ui.separator         #d4d4d4
+ui.statusline        #eaeaeb
+ui.statusline.text   #383a42
+ui.statusline.mode   #fafafa
+ui.mode.normal       #4078f2
+ui.mode.insert       #50a14f
+ui.mode.replace      #e45649
+ui.mode.select       #a626a4
+ui.mode.terminal     #c18401
+ui.tabbar            #eaeaeb
+ui.tab               #9d9d9f
+ui.tab.active        #383a42
+ui.tab.active.bg     #fafafa
+ui.popup             #ffffff
+ui.popup.border      #d4d4d4
+ui.popup.selected    #e8ecf8
+ui.popup.match       #c18401
+ui.prompt            #4078f2
+ui.help              #9d9d9f
+ui.error             #e45649
+ui.warning           #c18401
+ui.info              #0184bc
+ui.match.bracket     #d6dcf5
+ui.search.match      #fff1c2
+ui.whitespace        #d4d4d4
+ui.dim               #9d9d9f
+
+# --- Syntax ---
+comment              #a0a1a7 italic
+comment.doc          #8c8d93 italic
+comment.todo         #c18401 bold
+keyword              #a626a4
+operator             #0184bc
+type                 #c18401
+function             #4078f2
+function.builtin     #0184bc
+constant             #986801
+number               #986801
+string               #50a14f
+string.escape        #0184bc
+string.special       #0184bc
+char                 #50a14f
+regex                #0184bc
+attribute            #c18401
+annotation           #c18401
+variable             #383a42
+variable.builtin     #e45649
+variable.parameter   #e45649
+property             #e45649
+namespace            #c18401
+label                #e45649
+tag                  #e45649
+punctuation          #383a42
+punctuation.special  #0184bc
+preprocessor         #a626a4
+special              #0184bc
+conceal              #c6c8cc
+
+# --- Markup ---
+heading              #e45649
+heading.1            #e45649
+heading.2            #986801
+heading.3            #c18401
+heading.4            #50a14f
+heading.5            #0184bc
+heading.6            #4078f2
+strong               #986801
+emphasis             #a626a4
+strike               #a0a1a7
+code                 #50a14f
+code.background      #f0f0f1
+code.block           #383a42
+link                 #4078f2 underline
+link.url             #0184bc underline
+link.text            #4078f2
+list.marker          #4078f2
+quote                #a0a1a7 italic
+rule                 #c6c8cc
+table                #383a42
+
+# --- Diff ---
+diff.add             #50a14f
+diff.remove          #e45649
+diff.header          #4078f2 bold
+diff.hunk            #0184bc
+
+# --- Terminal palette ---
+term.black           #383a42
+term.red             #e45649
+term.green           #50a14f
+term.yellow          #c18401
+term.blue            #4078f2
+term.magenta         #a626a4
+term.cyan            #0184bc
+term.white           #fafafa
+term.bright_black    #9d9d9f
+term.bright_red      #e45649
+term.bright_green    #50a14f
+term.bright_yellow   #c18401
+term.bright_blue     #4078f2
+term.bright_magenta  #a626a4
+term.bright_cyan     #0184bc
+term.bright_white    #ffffff
+
+# File tree
+directory            #4078f2 bold
+tree.hidden          #a0a1a7

@@ -1,0 +1,68 @@
+# Markdown — quin syntax definition.
+#
+# This file is also the showcase for quin's "rendered" display: markers like
+# `**`, `#` or backticks are concealed (hidden unless the cursor is on their
+# line), headings are drawn bigger and bold, list bullets are replaced by `•`,
+# and fenced code blocks are highlighted with the named language.
+
+name          markdown
+extensions    md markdown mdown mkd
+line-comment  <!--
+indent        2 spaces
+auto-pairs    () [] {} "" ** ``
+
+# Fenced code blocks: the language name after ``` picks the embedded syntax.
+region code.block   ^\s*```\s*([A-Za-z0-9_+-]*).*$   ^\s*```\s*$   embed=1   0:punctuation.special
+region code.block   ^\s*~~~.*$                        ^\s*~~~\s*$   0:punctuation.special
+
+# Headings (the hashes are hidden, the text is bigger).
+match heading.1   ^(#)\s+(.*)$        1:conceal 2:heading.1
+match heading.2   ^(##)\s+(.*)$       1:conceal 2:heading.2
+match heading.3   ^(###)\s+(.*)$      1:conceal 2:heading.3
+match heading.4   ^(####)\s+(.*)$     1:conceal 2:heading.4
+match heading.5   ^(#####)\s+(.*)$    1:conceal 2:heading.5
+match heading.6   ^(######)\s+(.*)$   1:conceal 2:heading.6
+match heading.1   ^=+\s*$
+match heading.2   ^-{3,}\s*$
+
+# Block elements.
+match rule          ^\s*(?:\*\s*){3,}$
+match rule          ^\s*(?:_\s*){3,}$
+match quote         ^\s*>.*$
+match list          '^\s*([-*+])\s+(\[ \])'     1:list.marker 2:list.checkbox.unchecked
+match list          ^\s*([-*+])\s+(\[[xX]\])   1:list.marker 2:list.checkbox.checked
+match list          ^\s*([-*+])\s              1:list.marker
+match list          ^\s*(\d+\.)\s              1:list.number
+match table         ^\s*\|.*\|\s*$
+
+# Inline elements. Order matters: strong before emphasis.
+match code           (`+)([^`]+)(`+)              1:conceal 2:code 3:conceal
+match strong         (\*\*)([^*]+)(\*\*)          1:conceal 2:strong 3:conceal
+match strong         (__)([^_]+)(__)              1:conceal 2:strong 3:conceal
+match emphasis       (\*)([^*\s][^*]*)(\*)        1:conceal 2:emphasis 3:conceal
+match emphasis       \b(_)([^_]+)(_)\b            1:conceal 2:emphasis 3:conceal
+match strike         (~~)([^~]+)(~~)              1:conceal 2:strike 3:conceal
+match link           (!?\[)([^\]]*)(\]\()([^)]*)(\))   1:conceal 2:link.text 3:conceal 4:conceal 5:conceal
+match link.url       <https?://[^>]+>
+match link.url       \bhttps?://[^\s)>]+
+match comment        <!--.*?-->
+match string.escape  \\[\\`*_{}\[\]()#+.!-]
+
+# How the tokens above are rendered.
+style heading.1           bold size=1.6
+style heading.2           bold size=1.4
+style heading.3           bold size=1.2
+style heading.4           bold size=1.1
+style heading.5           bold
+style heading.6           bold
+style strong              bold
+style emphasis            italic
+style strike              strike
+style code                bg=code.background
+style code.block          bg=code.background
+style conceal             conceal
+style link.text           underline
+style list.marker         replace=•
+style list.checkbox.unchecked replace=□
+style list.checkbox.checked   replace=■
+style quote               italic

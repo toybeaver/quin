@@ -1,0 +1,30 @@
+# Dockerfile / Containerfile — quin syntax definition.
+
+name          dockerfile
+extensions    dockerfile containerfile
+filenames     dockerfile containerfile dockerfile.dev dockerfile.prod
+line-comment  #
+indent        4 spaces
+auto-pairs    () [] {} "" ''
+
+# Comments (and parser directives like `# syntax=`)
+match preprocessor  ^#\s*(?:syntax|escape|check)=.*$
+region comment  ^\s*#  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Instructions (case-insensitive)
+match keyword  (?i)^\s*(?:FROM|RUN|CMD|LABEL|MAINTAINER|EXPOSE|ENV|ADD|COPY|ENTRYPOINT|VOLUME|USER|WORKDIR|ARG|ONBUILD|STOPSIGNAL|HEALTHCHECK|SHELL)\b
+match keyword  (?i)\b(?:AS)\b
+match keyword  (?i)^\s*(?:FROM)\s+\S+\s+(AS)\s+(\S+)   1:keyword 2:label
+
+# Flags, variables, strings, numbers
+match attribute  (?:^|\s)--[a-z][\w-]*
+match variable   \$\{[^}]*\}
+match variable   \$[A-Za-z_]\w*
+region string  '"'  '"|$'
+  match string.escape  \\.
+  match variable       \$\{[^}]*\}
+  match variable       \$[A-Za-z_]\w*
+match string  "'[^']*'"
+match number  \b\d+\b
+match operator  &&|\|\||[|;<>]|\\$

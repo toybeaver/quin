@@ -1,0 +1,46 @@
+# Swift — quin syntax definition.
+
+name          swift
+extensions    swift
+line-comment  //
+block-comment /* */
+indent        4 spaces
+auto-pairs    () [] {} "" ''
+
+# Definitions: listed before the keyword lists so the name capture wins the tie.
+match keyword      \b(?:func)\s+([A-Za-z_]\w*)   1:function
+match keyword      \b(?:class|struct|enum|protocol|extension|actor|typealias)\s+([A-Za-z_]\w*)   1:type
+
+keywords keyword.control  if else guard switch case default for while repeat break continue fallthrough return throw throws rethrows try catch defer do where in async await
+keywords keyword          func var let class struct enum protocol extension actor init deinit subscript typealias associatedtype import static final override mutating nonmutating lazy weak unowned inout public private fileprivate internal open some any is as self Self super convenience required optional dynamic indirect operator precedencegroup willSet didSet get set
+keywords type.builtin     Int Int8 Int16 Int32 Int64 UInt UInt8 UInt16 UInt32 UInt64 Float Double Bool String Character Array Dictionary Set Optional Result Void Never Any AnyObject Error
+keywords constant.builtin true false nil
+
+# Comments
+region comment.doc  ///  $
+region comment.doc  /\*\*  \*/
+region comment  //  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+region comment  /\*  \*/
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Strings
+region string  '"""'  '"""'
+  match string.special  \\\([^()]*\)
+  match string.escape   \\.
+region string  '"'  '"|$'
+  match string.special  \\\([^()]*\)
+  match string.escape   \\(?:[0\\tnr"']|u\{[0-9a-fA-F]+\})
+
+# Numbers
+match number  \b0[xX][0-9a-fA-F_]+(?:\.[0-9a-fA-F_]*)?(?:[pP][+-]?\d+)?\b
+match number  \b0[oO][0-7_]+\b
+match number  \b0[bB][01_]+\b
+match number  \b\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?\b
+
+# Attributes, definitions, calls, types, operators
+match attribute    @[A-Za-z_]\w*
+match attribute    #(?:if|else|elseif|endif|available|selector|keyPath|file|line|function|warning|error)\b
+match punctuation  \b([A-Za-z_]\w*)\s*(?:<[^<>()]*>)?\s*\(   1:function
+match type         \b[A-Z][A-Za-z0-9_]*\b
+match operator     \?\?|->|\.\.\.|\.\.<|===?|!==?|<=|>=|&&|\|\||[-+*/%=<>!&|^~?]

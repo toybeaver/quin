@@ -1,0 +1,51 @@
+# TypeScript — quin syntax definition.
+
+name          typescript
+extensions    ts tsx mts cts
+line-comment  //
+block-comment /* */
+indent        2 spaces
+auto-pairs    () [] {} "" '' ``
+
+# Definitions: listed before the keyword lists so the name capture wins the tie.
+match keyword      \b(?:function)\s*\*?\s*([A-Za-z_$][\w$]*)                  1:function
+match keyword      \b(?:class|interface|type|enum|namespace)\s+([A-Za-z_$][\w$]*)   1:type
+
+keywords keyword.control  if else for while do break continue return switch case default throw try catch finally yield await
+keywords keyword          var let const function class extends implements interface type enum namespace module declare abstract new delete typeof instanceof keyof infer void in of is import export from default as async static get set constructor super this public private protected readonly override satisfies asserts debugger with
+keywords constant.builtin true false null undefined NaN Infinity
+keywords variable.builtin arguments globalThis window document console process
+keywords type.builtin     string number boolean any unknown never void object symbol bigint Object Array String Number Boolean Symbol BigInt Function Promise Map Set WeakMap WeakSet Date RegExp Error Math JSON Record Partial Required Readonly Pick Omit Exclude Extract NonNullable ReturnType Parameters Awaited
+
+# Comments
+region comment.doc  /\*\*  \*/
+  match attribute     @\w+
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+region comment  //  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+region comment  /\*  \*/
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Strings
+region string  '"'  '"|$'
+  match string.escape  \\(?:[\\'"bfnrtv0]|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|u\{[0-9a-fA-F]+\})
+region string  "'"  "'|$"
+  match string.escape  \\(?:[\\'"bfnrtv0]|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|u\{[0-9a-fA-F]+\})
+region string  `  `
+  match string.special  \$\{[^}]*\}
+  match string.escape   \\.
+
+# Numbers
+match number  \b0[xX][0-9a-fA-F_]+n?\b
+match number  \b0[oO][0-7_]+n?\b
+match number  \b0[bB][01_]+n?\b
+match number  \b\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?n?\b
+match number  \B\.\d[\d_]*(?:[eE][+-]?\d+)?\b
+
+# Decorators, definitions, calls, types, operators
+match attribute    @[A-Za-z_$][\w$.]*
+match punctuation  \b([A-Za-z_$][\w$]*)\s*(?:<[^<>()]*>)?\s*\(                1:function
+match punctuation  \b([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^()]*\)|[A-Za-z_$][\w$]*)\s*=>   1:function
+match type         \b[A-Z][A-Za-z0-9_$]*\b
+match tag          </?([A-Za-z][\w.:-]*)   1:tag
+match operator     =>|\?\?=?|\?\.|\*\*=?|===?|!==?|<<=?|>>>?=?|&&=?|\|\|=?|[-+*/%=<>!&|^~?]+

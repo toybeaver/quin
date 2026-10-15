@@ -1,0 +1,36 @@
+# SQL — quin syntax definition. Keywords are matched case-insensitively.
+
+name          sql
+extensions    sql psql mysql sqlite ddl dml
+line-comment  --
+block-comment /* */
+indent        2 spaces
+auto-pairs    () [] {} "" ''
+
+# Comments
+region comment  --  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+region comment  /\*  \*/
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Strings and quoted identifiers
+region string  "'"  "'|$"
+  match string.escape  "''"
+  match string.escape  \\.
+match type  '"[^"]*"'
+match type  `[^`]*`
+match type  \[[^\]]+\]
+
+# Keywords (case-insensitive)
+match keyword.control  (?i)\b(?:select|from|where|insert|into|values|update|set|delete|create|alter|drop|table|view|index|trigger|procedure|function|database|schema|if|exists|then|else|elseif|end|case|when|begin|commit|rollback|transaction|return|returns|returning|declare|loop|while|for|exit|continue|raise|exception|execute|call|grant|revoke|truncate|replace|merge|with|recursive|union|all|intersect|except|explain|analyze|vacuum|show|describe|use)\b
+match keyword  (?i)\b(?:as|on|join|inner|left|right|full|outer|cross|natural|using|group|by|order|having|limit|offset|fetch|first|next|rows|only|distinct|asc|desc|nulls|and|or|not|in|is|like|ilike|similar|between|any|some|exists|null|default|primary|foreign|key|references|constraint|unique|check|cascade|restrict|no|action|add|column|rename|to|temporary|temp|unlogged|materialized|sequence|type|domain|extension|language|owner|collate|over|partition|window|filter|within|lateral|values|cast|interval|zone|time|current|row|range|unbounded|preceding|following|conflict|do|nothing|do_update|set|ignore|autoincrement|auto_increment|engine|charset|comment|immutable|stable|volatile|strict|security|definer|invoker|plpgsql|each|statement|before|after|instead|of|new|old)\b
+match type  (?i)\b(?:int|integer|smallint|bigint|tinyint|serial|bigserial|decimal|numeric|real|float|double|precision|boolean|bool|char|varchar|character|varying|text|clob|blob|bytea|binary|varbinary|date|datetime|timestamp|timestamptz|json|jsonb|uuid|xml|array|money|inet|cidr|enum|point|geometry|geography|identity)\b
+match constant.builtin  (?i)\b(?:true|false|null|current_date|current_time|current_timestamp|current_user|session_user|localtime|localtimestamp)\b
+match function.builtin  (?i)\b(count|sum|avg|min|max|coalesce|nullif|greatest|least|length|char_length|lower|upper|trim|ltrim|rtrim|substring|substr|concat|concat_ws|replace|position|strpos|split_part|left|right|lpad|rpad|now|date_trunc|date_part|extract|to_char|to_date|to_timestamp|to_number|age|abs|ceil|ceiling|floor|round|trunc|mod|power|sqrt|random|row_number|rank|dense_rank|lag|lead|first_value|last_value|ntile|array_agg|string_agg|json_agg|jsonb_agg|json_build_object|jsonb_build_object|generate_series|unnest|exists|cast|convert|ifnull|isnull|iif|format|regexp_replace|regexp_matches)\s*\(   1:function.builtin
+
+# Parameters, numbers, calls, operators
+match variable  [:@$][A-Za-z_]\w*
+match variable  \$\d+
+match number    \b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b
+match punctuation  \b([A-Za-z_][\w.]*)\s*\(   1:function
+match operator  <>|!=|<=|>=|::|\|\||->>|->|[-+*/%=<>!~^&|]

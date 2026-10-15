@@ -1,0 +1,57 @@
+# Ruby — quin syntax definition.
+
+name          ruby
+extensions    rb rake gemspec ru erb
+filenames     gemfile rakefile guardfile capfile vagrantfile
+shebang       ruby
+line-comment  #
+indent        2 spaces
+auto-pairs    () [] {} "" ''
+
+# Definitions: listed before the keyword lists so the name capture wins the tie.
+match keyword      \b(?:def)\s+(?:self\.)?([A-Za-z_]\w*[?!=]?)   1:function
+match keyword      \b(?:class|module)\s+([A-Z][\w:]*)           1:type
+
+keywords keyword.control  if elsif else unless while until for in do then begin rescue ensure end case when return break next redo retry yield raise loop
+keywords keyword          def class module self super nil and or not alias undef defined? require require_relative include extend attr_reader attr_writer attr_accessor private public protected module_function lambda proc
+keywords constant.builtin true false nil __FILE__ __LINE__ __method__
+keywords function.builtin puts print p pp gets require_relative raise fail catch throw format sprintf printf exit abort sleep rand
+
+# Comments
+region comment  ^=begin  ^=end
+region comment  #  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Heredocs
+region string  <<[-~]?.?(?:EOS|EOF|SQL|HTML|RUBY|TEXT|END).?  ^\s*(?:EOS|EOF|SQL|HTML|RUBY|TEXT|END)\s*$
+  match string.special  #\{[^}]*\}
+
+# Strings, symbols, regexes
+region string  '"'  '"|$'
+  match string.escape   \\(?:[\\"abefnrstv0]|x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{4}|u\{[0-9a-fA-F\x20]+\})
+  match string.special  #\{[^}]*\}
+match string  "'(?:[^'\\]|\\.)*'"
+match string  %[wWiIqQ]?\[[^\]]*\]
+match string  %[wWiIqQ]?\([^)]*\)
+match string  %[wWiIqQ]?\{[^}]*\}
+match regex   %r\{[^}]*\}[imxounse]*
+match constant  :[A-Za-z_]\w*[?!=]?
+match constant  :"[^"]*"
+match punctuation  \b([A-Za-z_]\w*):(?:\s|$)   1:property
+
+# Variables
+match variable          @@[A-Za-z_]\w*
+match variable          @[A-Za-z_]\w*
+match variable.builtin  \$[A-Za-z_]\w*
+match variable.builtin  \$[!@&`'+~=/\\,;.<>_0-9*$?:"]
+
+# Numbers
+match number  \b0[xX][0-9a-fA-F_]+\b
+match number  \b0[bB][01_]+\b
+match number  \b0[oO]?[0-7_]+\b
+match number  \b\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?r?i?\b
+
+# Definitions, calls, types, operators
+match punctuation  \b([A-Za-z_]\w*[?!]?)\s*\(                   1:function
+match type         \b[A-Z][A-Za-z0-9_]*\b
+match operator     <=>|===?|=~|!~|\*\*=?|<<=?|>>=?|&&=?|\|\|=?|\.\.\.?|->|=>|[-+*/%=<>!&|^~?:]+

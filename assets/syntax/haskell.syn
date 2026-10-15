@@ -1,0 +1,39 @@
+# Haskell — quin syntax definition.
+
+name          haskell
+extensions    hs lhs hs-boot
+line-comment  --
+block-comment {- -}
+indent        2 spaces
+auto-pairs    () [] {} "" ''
+
+keywords keyword.control  if then else case of do let in where
+keywords keyword          module import qualified as hiding data type newtype class instance deriving default infix infixl infixr forall family foreign mdo rec proc
+keywords type.builtin     Int Integer Float Double Char String Bool Maybe Either IO Ordering Word Rational
+keywords constant.builtin True False Nothing Just Left Right LT EQ GT
+keywords function.builtin map filter foldr foldl fmap pure return show read print putStrLn getLine error undefined otherwise
+
+# Pragmas and comments
+region preprocessor  \{-#  #-\}
+region comment  \{-  -\}
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+region comment.doc  --\s*[|^]  $
+region comment  --  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Strings and chars
+region string  '"'  '"|$'
+  match string.escape  \\(?:[abfnrtv\\"']|\d+|x[0-9a-fA-F]+|o[0-7]+|\^[A-Z@\[\\\]^_]|NUL|SOH|STX|ETX|EOT|ENQ|ACK|BEL|BS|HT|LF|VT|FF|CR|SO|SI|DLE|DC1|DC2|DC3|DC4|NAK|SYN|ETB|CAN|EM|SUB|ESC|FS|GS|RS|US|SP|DEL)
+match char  "'(?:[^'\\]|\\.|\\\d+)'"
+
+# Numbers
+match number  \b0[xX][0-9a-fA-F_]+\b
+match number  \b0[oO][0-7_]+\b
+match number  \b0[bB][01_]+\b
+match number  \b\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?\b
+
+# Type signatures, types, operators
+match punctuation  ^([a-z_][\w']*)\s*::   1:function
+match type         \b[A-Z][\w']*\b
+match operator     ::|->|<-|=>|\.\.|\\|[-+*/%=<>!&|^~$.@:]+
+match punctuation  `[a-z_][\w']*`

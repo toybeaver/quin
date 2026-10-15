@@ -1,0 +1,27 @@
+# HTML — quin syntax definition.
+# <style> embeds css, <script> embeds javascript.
+
+name          html
+extensions    html htm xhtml vue svelte
+line-comment  <!--
+block-comment <!-- -->
+indent        2 spaces
+auto-pairs    () [] {} "" '' <>
+
+region comment  <!--  -->
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+match preprocessor  (?i)<!DOCTYPE[^>]*>
+
+# Embedded languages. The opening tag is consumed by the region start.
+region embedded  (?i)<style[^>]*>   (?i)</style\s*>    embed=css        0:tag
+region embedded  (?i)<script[^>]*>  (?i)</script\s*>   embed=javascript 0:tag
+
+# Tags with their attributes
+region punctuation  </?([A-Za-z][\w:-]*)  /?>  1:tag
+  match punctuation  ([A-Za-z_:][\w:.-]*)\s*=   1:attribute
+  match attribute    [A-Za-z_:][\w:.-]*
+  region string  '"'  '"'
+  region string  "'"  "'"
+
+# Entities
+match string.escape  &(?:[A-Za-z]+|#\d+|#x[0-9a-fA-F]+);

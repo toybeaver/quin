@@ -1,0 +1,41 @@
+# Rust — quin syntax definition.
+# See src/syntax/format.rs for the format reference.
+
+name          rust
+extensions    rs
+line-comment  //
+block-comment /* */
+indent        4 spaces
+auto-pairs    () [] {} "" ``
+
+keywords keyword.control  if else match loop while for in break continue return yield
+keywords keyword          as const crate dyn enum extern fn impl let mod move mut pub ref static struct super trait type union unsafe use where async await macro_rules
+keywords type.builtin     bool char str u8 u16 u32 u64 u128 usize i8 i16 i32 i64 i128 isize f32 f64 String Vec Option Result Box Rc Arc HashMap HashSet BTreeMap BTreeSet Cow Self
+keywords constant.builtin true false None Some Ok Err
+keywords variable.builtin self
+
+match comment.doc      ///.*
+match comment.doc      //!.*
+match comment          //.*
+  match comment.todo   \b(TODO|FIXME|XXX|NOTE)\b
+match attribute        #!?\[[^\]]*\]
+match string           b?"(?:[^"\\]|\\.)*"
+  match string.escape  \\.
+match char             b?'(?:[^'\\]|\\.)'
+match label            "'[A-Za-z_]\w*\b"
+match number           \b0x[0-9a-fA-F_]+(?:[iu](?:8|16|32|64|128|size))?\b
+match number           \b0b[01_]+(?:[iu](?:8|16|32|64|128|size))?\b
+match number           \b0o[0-7_]+(?:[iu](?:8|16|32|64|128|size))?\b
+match number           \b\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?(?:[iu](?:8|16|32|64|128|size)|f32|f64)?\b
+match function.macro   \b[A-Za-z_]\w*!
+match function         \b([A-Za-z_]\w*)\s*(?:::<[^>]*>)?\( 1:function
+match type             \b[A-Z][A-Za-z0-9_]*\b
+match namespace        \b([a-z_][a-z0-9_]*)::  1:namespace
+match operator         ->|=>|::|[-+*/%=<>!&|^~?]+
+
+region comment         /\*  \*/
+  match comment.todo   \b(TODO|FIXME|XXX|NOTE)\b
+region string          'r#+"'  '"#+'
+region string          'r"'    '"'
+
+style comment.todo bold

@@ -1,0 +1,55 @@
+# PHP — quin syntax definition.
+
+name          php
+extensions    php phtml php3 php4 php5 phps
+shebang       php
+line-comment  //
+block-comment /* */
+indent        4 spaces
+auto-pairs    () [] {} "" ''
+
+# Definitions: listed before the keyword lists so the name capture wins the tie.
+match keyword      \b(?:function)\s+&?([A-Za-z_]\w*)   1:function
+match keyword      \b(?:class|interface|trait|enum|namespace)\s+([A-Za-z_][\w\\]*)   1:type
+
+keywords keyword.control  if else elseif endif for foreach endforeach while endwhile do switch case default break continue return goto try catch finally throw match yield declare
+keywords keyword          function fn class interface trait enum extends implements abstract final static public private protected const var new clone instanceof insteadof namespace use as global unset isset empty echo print include include_once require require_once list array callable readonly and or xor
+keywords type.builtin     int float bool string array object mixed void null iterable callable self parent static never true false
+keywords constant.builtin true false null TRUE FALSE NULL PHP_EOL PHP_INT_MAX PHP_VERSION __FILE__ __LINE__ __DIR__ __FUNCTION__ __CLASS__ __METHOD__ __NAMESPACE__
+keywords variable.builtin $this $_GET $_POST $_SERVER $_SESSION $_COOKIE $_FILES $_ENV $_REQUEST $GLOBALS
+
+# Tags and comments
+match preprocessor  <\?php\b|<\?=|<\?|\?>
+region comment.doc  /\*\*  \*/
+  match attribute     @\w+
+  match type          \$\w+
+region comment  //  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+region comment  #  $
+region comment  /\*  \*/
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Heredoc / nowdoc, strings
+region string  '<<<\s*.?(?:EOT|EOF|EOD|HTML|SQL|END).?\s*$'  '^\s*(?:EOT|EOF|EOD|HTML|SQL|END);?\s*$'
+  match variable        \$[A-Za-z_]\w*
+  match string.special  \{\$[^}]*\}
+region string  '"'  '"|$'
+  match string.escape   \\(?:[nrtvef\\$"0-7]|x[0-9a-fA-F]{1,2}|u\{[0-9a-fA-F]+\})
+  match string.special  \{\$[^}]*\}
+  match variable        \$[A-Za-z_]\w*
+match string  "'(?:[^'\\]|\\.)*'"
+
+# Variables, attributes
+match variable   \$[A-Za-z_]\w*
+match attribute  #\[[^\]]*\]
+
+# Numbers
+match number  \b0[xX][0-9a-fA-F_]+\b
+match number  \b0[bB][01_]+\b
+match number  \b0[oO]?[0-7_]+\b
+match number  \b\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?\b
+
+# Definitions, calls, types, operators
+match punctuation  \b([A-Za-z_]\w*)\s*\(   1:function
+match type         \b[A-Z][A-Za-z0-9_]*\b
+match operator     ->|=>|::|\?->|\?\?=?|<=>|===?|!==?|<>|\*\*=?|\.=|<<=?|>>=?|&&|\|\||\+\+|--|[-+*/%=<>!&|^~?.@]

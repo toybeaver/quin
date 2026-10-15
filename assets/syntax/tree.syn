@@ -1,0 +1,8 @@
+# The file tree sidebar (`:tree`): one entry per line, directories end with `/`.
+
+name          tree
+indent        2 spaces
+
+match directory    ^\s*[^/]+/$
+match tree.hidden  ^\s*\.[^/]*$
+match tree.hidden  ^\s*\.[^/]*/$

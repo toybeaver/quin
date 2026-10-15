@@ -1,0 +1,32 @@
+# quin's own files (`*.syn` syntax definitions and `*.theme` themes).
+
+name          quin
+extensions    syn theme
+line-comment  #
+indent        2 spaces
+auto-pairs    () [] {} "" ''
+
+# Comments: a `#` at line start, or ` # ` after a theme color.
+match comment  ^\s*#.*$
+match comment  '\s#\s.*$'
+
+# Syntax-file directives, with the scope that follows them as a type.
+match keyword  ^\s*(?:match|region|keywords|style)\s+([\w.]+)   1:type
+match keyword  ^\s*(?:name|extensions?|filenames?|shebangs?|line-comment|block-comment|indent|auto-pairs)\b
+
+# Capture scopes, style attributes, embeds
+match attribute  \b\d+:[\w.]+
+match attribute  \b(?:bold|italic|underline|strike|conceal)\b
+match punctuation  \b(size|bg|replace|embed)=(\S+)   1:attribute 2:constant
+
+# Theme colors
+match constant  #[0-9a-fA-F]{6}\b
+match constant  #[0-9a-fA-F]{3}\b
+
+# Quoted regexes / values
+match regex  '"[^"]*"'
+match regex  "'[^']*'"
+
+# Theme scopes and config keys at line start
+match punctuation  ^\s*([a-zA-Z][\w.-]*)\s   1:property
+match number  \b\d+(?:\.\d+)?\b

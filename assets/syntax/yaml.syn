@@ -1,0 +1,42 @@
+# YAML — quin syntax definition.
+
+name          yaml
+extensions    yaml yml
+filenames     .clang-format .yamllint
+line-comment  #
+indent        2 spaces
+auto-pairs    () [] {} "" ''
+
+keywords constant.builtin true false null yes no on off True False Null Yes No On Off TRUE FALSE NULL ~
+
+# Comments
+region comment  (?:^|\s)#  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Document markers, directives
+match punctuation.special  ^---(?:\s|$)
+match punctuation.special  ^\.\.\.\s*$
+match preprocessor         ^%[A-Z]+.*$
+
+# Keys: `key:` at line start, possibly after a list dash, or inline in flow maps
+match punctuation  '^\s*(?:-\s+)?("[^"]*"|[^\s#:\[\]{},][^#:]*?)\s*:(?:\s|$)'   1:property
+match punctuation  '[{,]\s*([A-Za-z0-9_.\-/]+)\s*:'   1:property
+match punctuation  '^\s*(\?)\s'   1:punctuation.special
+
+# List markers, anchors, aliases, tags, block scalars
+match punctuation  ^\s*(-)(?:\s|$)   1:list.marker
+match label        &[A-Za-z0-9_-]+
+match label        \*[A-Za-z0-9_-]+
+match type         ![A-Za-z0-9_!:/-]*
+match punctuation.special  (?:^|\s)[|>][+-]?\d*\s*$
+
+# Strings
+region string  '"'  '"|$'
+  match string.escape  \\(?:[0abtnvfre\x20"/\\N_LP]|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8})
+match string  "'(?:[^']|'')*'"
+
+# Numbers, dates
+match special  '\b\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:\s*(?:Z|[+-]\d{2}(?::\d{2})?))?)?\b'
+match punctuation  (?:^|[\s\[,:])([+-]?(?:0x[0-9a-fA-F]+|0o[0-7]+|\d+(?:\.\d*)?(?:[eE][+-]?\d+)?|\.inf|\.nan))(?:\s|$|[,\]])   1:number
+match variable  \$\{[^}]*\}
+match punctuation  [{}\[\],]

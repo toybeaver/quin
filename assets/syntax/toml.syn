@@ -1,0 +1,36 @@
+# TOML — quin syntax definition.
+
+name          toml
+extensions    toml
+filenames     cargo.lock
+line-comment  #
+indent        2 spaces
+auto-pairs    () [] {} "" ''
+
+keywords constant.builtin true false inf nan
+
+region comment  #  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Tables and keys
+match namespace    ^\s*\[\[[^\]]*\]\]
+match namespace    ^\s*\[[^\]]*\]
+match punctuation  '^\s*([A-Za-z0-9_.-]+|"[^"]*")\s*='   1:property
+match punctuation  '([A-Za-z0-9_-]+)\s*='   1:property
+
+# Strings
+region string  '"""'  '"""'
+  match string.escape  \\(?:[btnfr"\\]|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|$)
+region string  "'''"  "'''"
+region string  '"'  '"|$'
+  match string.escape  \\(?:[btnfr"\\]|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8})
+match string  "'[^']*'"
+
+# Dates, numbers
+match special  '\b\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})?)?\b'
+match special  \b\d{2}:\d{2}:\d{2}(?:\.\d+)?\b
+match number   [+-]?\b0x[0-9a-fA-F_]+\b
+match number   [+-]?\b0o[0-7_]+\b
+match number   [+-]?\b0b[01_]+\b
+match number   [+-]?\b\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?\b
+match operator  =

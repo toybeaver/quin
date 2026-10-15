@@ -1,0 +1,40 @@
+# CSS (also usable for SCSS / Less) — quin syntax definition.
+
+name          css
+extensions    css scss sass less
+block-comment /* */
+line-comment  //
+indent        2 spaces
+auto-pairs    () [] {} "" ''
+
+keywords keyword          !important !default inherit initial unset revert auto none
+keywords constant.builtin true false null
+
+region comment  /\*  \*/
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+region comment  //  $
+
+# At-rules, selectors
+match keyword      @[a-zA-Z-]+
+match punctuation  ^\s*([a-zA-Z-]+)\s*:   1:property
+match punctuation  ([a-zA-Z-]+)\s*:\s     1:property
+match constant     #[0-9a-fA-F]{3,8}\b
+match label        #[A-Za-z_-][\w-]*
+match type         \.[A-Za-z_-][\w-]*
+match attribute    ::?[a-zA-Z-]+(?:\([^)]*\))?
+match attribute    \[[^\]]*\]
+match variable     --[A-Za-z_-][\w-]*
+match variable     \$[A-Za-z_-][\w-]*
+
+# Strings
+region string  '"'  '"|$'
+  match string.escape  \\.
+region string  "'"  "'|$"
+  match string.escape  \\.
+
+# Values
+match punctuation  \b([a-zA-Z-]+)\(   1:function
+match number       [+-]?\b\d+(?:\.\d+)?(?:px|em|rem|ex|ch|vh|vw|vmin|vmax|%|s|ms|deg|rad|turn|fr|pt|pc|cm|mm|in|dpi|dppx)?\b
+match number       [+-]?\B\.\d+(?:px|em|rem|%|s|ms)?\b
+match tag          \b(?:html|body|div|span|a|p|ul|ol|li|h[1-6]|img|table|tr|td|th|form|input|button|label|nav|header|footer|main|section|article|aside|pre|code|svg|path|canvas|video|audio|textarea|select|option)\b
+match operator     [>+~*/%=,;]

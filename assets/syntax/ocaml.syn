@@ -1,0 +1,40 @@
+# OCaml — quin syntax definition.
+
+name          ocaml
+extensions    ml mli mll mly
+block-comment (* *)
+indent        2 spaces
+auto-pairs    () [] {} "" ''
+
+# Definitions: listed before the keyword lists so the name capture wins the tie.
+match keyword      \b(?:let|and)\s+(?:rec\s+)?([a-z_]\w*)   1:function
+
+keywords keyword.control  if then else match with function fun try raise when for to downto while do done begin end
+keywords keyword          let rec in and as of type module struct sig functor open include val external exception mutable nonrec private virtual method object class inherit initializer new constraint lazy assert lor land lxor lsl lsr asr mod or not
+keywords type.builtin     int float char string bool unit list array option ref exn bytes int32 int64 nativeint
+keywords constant.builtin true false None Some Ok Error
+
+# Comments (also doc comments `(** ... *)`)
+region comment.doc  \(\*\*  \*\)
+region comment  \(\*  \*\)
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Strings and chars
+region string  '\{[a-z_]*\|'  '\|[a-z_]*\}'
+region string  '"'  '"|$'
+  match string.escape  \\(?:[\\"'ntbr\x20]|\d{3}|x[0-9a-fA-F]{2}|o[0-7]{3})
+match char  "'(?:[^'\\]|\\.|\\\d{3}|\\x[0-9a-fA-F]{2})'"
+match label  "'[a-z_]\w*\b"
+
+# Numbers
+match number  \b0[xX][0-9a-fA-F_]+[lLn]?\b
+match number  \b0[oO][0-7_]+[lLn]?\b
+match number  \b0[bB][01_]+[lLn]?\b
+match number  \b\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?[lLn]?\b
+
+# Attributes, definitions, constructors/modules, labels, operators
+match attribute    \[@@?@?[A-Za-z_][\w.]*
+match attribute    ~[a-z_]\w*
+match attribute    \?[a-z_]\w*
+match type         \b[A-Z][\w']*\b
+match operator     ->|<-|:=|::|\|>|@@|[-+*/%=<>!&|^~$.@:#]+

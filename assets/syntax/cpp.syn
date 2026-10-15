@@ -1,0 +1,44 @@
+# C++ — quin syntax definition.
+
+name          cpp
+extensions    cpp cc cxx c++ hpp hh hxx h++ inl ipp tpp
+line-comment  //
+block-comment /* */
+indent        4 spaces
+auto-pairs    () [] {} "" ''
+
+keywords keyword.control  if else switch case default for while do break continue return goto try catch throw co_await co_return co_yield
+keywords keyword          class struct union enum typedef template typename namespace using public private protected virtual override final explicit friend inline static extern const constexpr consteval constinit volatile mutable register operator new delete this sizeof alignof alignas decltype static_assert noexcept export import module concept requires auto static_cast dynamic_cast reinterpret_cast const_cast typeid
+keywords type.builtin     void char char8_t char16_t char32_t wchar_t short int long float double signed unsigned bool size_t ssize_t ptrdiff_t int8_t int16_t int32_t int64_t uint8_t uint16_t uint32_t uint64_t intptr_t uintptr_t string string_view vector map set unordered_map unordered_set array deque list optional variant tuple pair unique_ptr shared_ptr weak_ptr function
+keywords constant.builtin NULL nullptr true false
+
+# Preprocessor
+match preprocessor  ^\s*#\s*include\s+(<[^>]+>)   1:string
+match preprocessor  ^\s*#\s*(?:include|define|undef|if|ifdef|ifndef|elif|else|endif|pragma|error|warning|line)\b
+
+# Comments
+region comment  //  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+region comment  /\*  \*/
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Strings and characters
+region string  'R"\('  '\)"'
+region string  '(?:u8|u|U|L)?"'  '"|$'
+  match string.escape   \\(?:[abfnrtv\\'"?]|[0-7]{1,3}|x[0-9a-fA-F]+|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8})
+  match string.special  '%[-+ #0]*(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:hh|h|ll|l|L|q|j|z|t)?[diouxXeEfFgGaAcspn%]'
+match char  "(?:u8|u|U|L)?'(?:[^'\\]|\\.)'"
+
+# Numbers
+match number  \b0[xX][0-9a-fA-F']+(?:[uU]?[lL]{0,2}|[lL]{0,2}[uU]?)\b
+match number  \b0[bB][01']+(?:[uU]?[lL]{0,2})\b
+match number  \b\d[\d']*(?:\.\d*)?(?:[eE][+-]?\d+)?(?:[uU]?[lL]{0,2}|[fFlL])?\b
+match number  \B\.\d+(?:[eE][+-]?\d+)?[fFlL]?\b
+
+# Attributes, namespaces, functions, types
+match attribute    \[\[[^\]]*\]\]
+match namespace    \b([A-Za-z_]\w*)\s*::   1:namespace
+match punctuation  \b([A-Za-z_]\w*)\s*(?:<[^<>()]*>)?\s*\(   1:function
+match type         \b[A-Z][A-Za-z0-9_]*\b
+match type         \b[A-Za-z_]\w*_t\b
+match operator     ->\*?|\.\*|<=>|<<=?|>>=?|::|[-+*/%=<>!&|^~?]+

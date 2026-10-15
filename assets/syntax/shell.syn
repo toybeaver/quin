@@ -1,0 +1,50 @@
+# Shell (sh / bash / zsh) — quin syntax definition.
+
+name          shell
+extensions    sh bash zsh ksh bashrc zshrc
+filenames     .bashrc .bash_profile .bash_aliases .bash_logout .profile .zshrc .zprofile .zshenv .zlogin profile
+shebang       bash sh zsh ksh dash
+line-comment  #
+indent        2 spaces
+auto-pairs    () [] {} "" '' ``
+
+keywords keyword.control  if then else elif fi for while until do done case esac in select time break continue return exit
+keywords keyword          function local export readonly declare typeset unset shift source alias unalias set eval exec trap
+keywords function.builtin echo printf read cd pwd test pushd popd dirs let getopts command type hash kill wait jobs bg fg true false
+keywords constant.builtin true false
+
+# Comments (a `#` glued to a word, like `$#` or `a#b`, is not a comment)
+region comment  (?:^|\s)#  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Heredocs
+region string  <<-?\s*.?EOF\b  ^\s*EOF\s*$
+  match variable  \$\{[^}]*\}
+  match variable  \$[A-Za-z_]\w*
+region string  <<-?\s*.?END\b  ^\s*END\s*$
+  match variable  \$\{[^}]*\}
+  match variable  \$[A-Za-z_]\w*
+
+# Strings
+region string  '"'  '"|$'
+  match string.escape  \\[\\"$`\n]
+  match variable       \$\{[^}]*\}
+  match variable       \$[A-Za-z_]\w*
+  match variable       \$[@*#?$!0-9-]
+  match string.special \$\([^()]*\)
+match string  "'[^']*'"
+match string  "\$'(?:[^'\\]|\\.)*'"
+
+# Variables and substitutions
+match variable        \$\{[^}]*\}
+match variable        \$[A-Za-z_]\w*
+match variable        \$[@*#?$!0-9-]
+match string.special  \$\([^()]*\)
+match punctuation     ^\s*([A-Za-z_]\w*)=   1:variable
+match variable        \b[A-Z_][A-Z0-9_]+\b
+
+# Function definitions, options, numbers, operators
+match punctuation  ^\s*(?:function\s+)?([A-Za-z_][\w-]*)\s*\(\)   1:function
+match attribute    (?:^|\s)--?[A-Za-z][\w-]*
+match number       \b\d+\b
+match operator     &&|\|\||[|&;<>]+|\[\[|\]\]|[-+*/%=!]=?

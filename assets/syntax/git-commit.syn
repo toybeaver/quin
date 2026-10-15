@@ -1,0 +1,24 @@
+# Git commit / merge / tag messages — quin syntax definition.
+# The commented status block and the verbose diff section are highlighted; the
+# diff part reuses the `diff` language.
+
+name          git-commit
+filenames     commit_editmsg merge_msg tag_editmsg squash_msg notes_editmsg
+
+# Verbose diff (git commit -v): everything from the first `diff --git` on.
+# The end pattern can never match, so the region lasts until the end of file.
+region embedded  '^diff --git.*$'  [^\s\S]  embed=diff
+
+# Comment block
+region comment  ^#  $
+  match keyword        '\b(?:On branch|HEAD detached at|Your branch is|Changes to be committed|Changes not staged for commit|Untracked files|Unmerged paths)\b'
+  match diff.add       '\b(?:new file|added):\s+.*$'
+  match diff.remove    \b(?:deleted|removed):\s+.*$
+  match diff.hunk      '\b(?:modified|renamed|copied|typechange|both modified):\s+.*$'
+
+# Trailers and references
+match punctuation  '^((?:Signed-off-by|Co-authored-by|Reviewed-by|Acked-by|Tested-by|Reported-by|Suggested-by|Fixes|Closes|Resolves|Refs|See-also|Cc|BREAKING CHANGE)):'   1:property
+match link.url     \bhttps?://\S+
+match constant     #\d+\b
+match constant     \b[0-9a-f]{7,40}\b
+match attribute    ^(?:feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(?:\([^)]*\))?!?:

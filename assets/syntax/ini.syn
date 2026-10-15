@@ -1,0 +1,26 @@
+# INI-style config files — quin syntax definition.
+
+name          ini
+extensions    ini cfg conf desktop service properties gitconfig gitmodules editorconfig
+filenames     .gitconfig .gitmodules .editorconfig .npmrc .pylintrc setup.cfg tox.ini pytest.ini .flake8 .hgrc
+line-comment  #
+indent        4 spaces
+auto-pairs    () [] {} "" ''
+
+keywords constant.builtin true false yes no on off null none
+
+region comment  ^\s*[;#]  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Sections and keys
+match namespace    ^\s*\[[^\]]*\]
+match punctuation  '^\s*([^=:;#\[\s][^=:]*?)\s*[=:]'   1:property
+
+# Values
+region string  '"'  '"|$'
+  match string.escape  \\.
+match string    "'[^']*'"
+match variable  \$\{[^}]*\}
+match variable  %[A-Za-z_]\w*%
+match number    (?:^|[=:\s])([+-]?\d+(?:\.\d+)?)\s*$   1:number
+match operator  [=:]

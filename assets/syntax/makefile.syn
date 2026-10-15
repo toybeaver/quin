@@ -1,0 +1,34 @@
+# Makefile — quin syntax definition.
+
+name          makefile
+extensions    mk mak make
+filenames     makefile gnumakefile makefile.am makefile.in
+line-comment  #
+indent        tabs
+auto-pairs    () [] {} "" ''
+
+keywords keyword  include -include sinclude ifeq ifneq ifdef ifndef else endif define endef export unexport override undefine vpath
+keywords function.builtin subst patsubst strip findstring filter filter-out sort word wordlist words firstword lastword dir notdir suffix basename addsuffix addprefix join wildcard realpath abspath if or and foreach file call value eval origin flavor error warning info shell guile
+
+region comment  #  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Special targets, rule targets, variable assignments
+match attribute    ^\.(?:PHONY|SUFFIXES|DEFAULT|PRECIOUS|INTERMEDIATE|SECONDARY|SECONDEXPANSION|DELETE_ON_ERROR|IGNORE|LOW_RESOLUTION_TIME|SILENT|EXPORT_ALL_VARIABLES|NOTPARALLEL|ONESHELL|POSIX)\b
+match punctuation  ^([^\s:=#][^:=#]*?)\s*::?(?:\s|$)        1:function
+match punctuation  ^\s*(?:export\s+)?([A-Za-z_][\w.-]*)\s*[:?+!]?=   1:variable
+
+# Variable references
+match variable  \$\([^)]*\)
+match variable  \$\{[^}]*\}
+match variable  \$[@<^*?%+|$]
+match variable  \$\([@<^*?%+]?[DF]\)
+
+# Strings, numbers, recipe prefixes
+region string  '"'  '"|$'
+  match variable  \$\([^)]*\)
+  match variable  \$\{[^}]*\}
+match string  "'[^']*'"
+match punctuation.special  ^\t[-@+]+
+match number  \b\d+\b
+match operator  [=:|;+?!]

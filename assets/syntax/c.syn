@@ -1,0 +1,42 @@
+# C — quin syntax definition.
+
+name          c
+extensions    c h
+line-comment  //
+block-comment /* */
+indent        4 spaces
+auto-pairs    () [] {} "" ''
+
+keywords keyword.control  if else switch case default for while do break continue return goto
+keywords keyword          struct union enum typedef sizeof static extern const volatile register inline restrict auto _Atomic _Static_assert _Alignas _Alignof _Generic _Noreturn _Thread_local
+keywords type.builtin     void char short int long float double signed unsigned bool _Bool size_t ssize_t ptrdiff_t int8_t int16_t int32_t int64_t uint8_t uint16_t uint32_t uint64_t intptr_t uintptr_t wchar_t FILE
+keywords constant.builtin NULL true false EOF EXIT_SUCCESS EXIT_FAILURE
+
+# Preprocessor
+match preprocessor  ^\s*#\s*include\s+(<[^>]+>)   1:string
+match preprocessor  ^\s*#\s*(?:include|define|undef|if|ifdef|ifndef|elif|else|endif|pragma|error|warning|line)\b
+
+# Comments
+region comment  //  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+region comment  /\*  \*/
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Strings and characters
+region string  '"'  '"|$'
+  match string.escape   \\(?:[abfnrtv\\'"?]|[0-7]{1,3}|x[0-9a-fA-F]+)
+  match string.special  '%[-+ #0]*(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:hh|h|ll|l|L|q|j|z|t)?[diouxXeEfFgGaAcspn%]'
+match char  "'(?:[^'\\]|\\.)'"
+
+# Numbers
+match number  \b0[xX][0-9a-fA-F']+(?:[uU]?[lL]{0,2}|[lL]{0,2}[uU]?)\b
+match number  \b0[bB][01']+(?:[uU]?[lL]{0,2})\b
+match number  \b\d[\d']*(?:\.\d*)?(?:[eE][+-]?\d+)?(?:[uU]?[lL]{0,2}|[fFlL])?\b
+match number  \B\.\d+(?:[eE][+-]?\d+)?[fFlL]?\b
+
+# Functions, types, attributes
+match punctuation  \b([A-Za-z_]\w*)\s*\(   1:function
+match type         \b[A-Za-z_]\w*_t\b
+match attribute    __attribute__\s*\(\([^)]*\)\)
+match attribute    \b__(?:asm__|inline__|extension__|typeof__|restrict__|volatile__)\b
+match operator     ->|<<=?|>>=?|[-+*/%=<>!&|^~?]+

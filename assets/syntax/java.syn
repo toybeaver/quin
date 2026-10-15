@@ -1,0 +1,46 @@
+# Java — quin syntax definition.
+
+name          java
+extensions    java
+line-comment  //
+block-comment /* */
+indent        4 spaces
+auto-pairs    () [] {} "" ''
+
+
+# Definitions: listed before the keyword lists so the name capture wins the tie.
+match keyword      \b(?:class|interface|enum|record)\s+([A-Za-z_]\w*)   1:type
+
+keywords keyword.control  if else for while do break continue return switch case default throw throws try catch finally yield assert
+keywords keyword          class interface enum record extends implements new this super instanceof package import static final abstract public private protected synchronized volatile transient native strictfp sealed permits non-sealed var
+keywords type.builtin     void boolean byte char short int long float double String Object Integer Long Double Float Boolean Character Byte Short List Map Set ArrayList HashMap HashSet Optional Stream
+keywords constant.builtin true false null
+
+# Comments
+region comment.doc  /\*\*  \*/
+  match attribute     @\w+
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+region comment  //  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+region comment  /\*  \*/
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Strings and characters
+region string  '"""'  '"""'
+  match string.escape  \\(?:[btnfr"'\\s]|u[0-9a-fA-F]{4}|[0-7]{1,3})
+region string  '"'  '"|$'
+  match string.escape   \\(?:[btnfr"'\\]|u[0-9a-fA-F]{4}|[0-7]{1,3})
+  match string.special  '%[-+ #0,(]*\d*(?:\.\d+)?[bBhHsScCdoxXeEfgGaAtTn%]'
+match char  "'(?:[^'\\]|\\.|\\u[0-9a-fA-F]{4})'"
+
+# Numbers
+match number  \b0[xX][0-9a-fA-F_]+[lL]?\b
+match number  \b0[bB][01_]+[lL]?\b
+match number  \b\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?[lLfFdD]?\b
+match number  \B\.\d[\d_]*(?:[eE][+-]?\d+)?[fFdD]?\b
+
+# Annotations, definitions, calls, types
+match annotation   @[A-Za-z_][\w.]*
+match punctuation  \b([A-Za-z_]\w*)\s*\(   1:function
+match type         \b[A-Z][A-Za-z0-9_]*\b
+match operator     ->|::|\+\+|--|<<=?|>>>?=?|&&|\|\||[-+*/%=<>!&|^~?:]+

@@ -1,0 +1,35 @@
+# CMake — quin syntax definition.
+
+name          cmake
+extensions    cmake
+filenames     cmakelists.txt
+line-comment  #
+indent        2 spaces
+auto-pairs    () [] {} ""
+
+# Comments
+region comment  #\[\[  \]\]
+region comment  #  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Flow control commands, then any other command invocation
+match keyword      (?i)^\s*(if|elseif|else|endif|foreach|endforeach|while|endwhile|function|endfunction|macro|endmacro|return|break|continue|block|endblock)\s*\(   1:keyword.control
+match punctuation  ^\s*([A-Za-z_][\w]*)\s*\(   1:function
+
+# Variables and generator expressions
+match variable        \$\{[^}]*\}
+match variable        \$ENV\{[^}]*\}
+match variable        \$CACHE\{[^}]*\}
+match string.special  \$<[^>]*>
+
+# Strings
+region string  '"'  '"'
+  match variable        \$\{[^}]*\}
+  match variable        \$ENV\{[^}]*\}
+  match string.escape   \\.
+
+# Keywords used as command arguments, properties, numbers, operators
+match keyword   \b(?:AND|OR|NOT|EQUAL|LESS|GREATER|STREQUAL|STRLESS|STRGREATER|VERSION_LESS|VERSION_GREATER|VERSION_EQUAL|MATCHES|EXISTS|IS_DIRECTORY|IS_ABSOLUTE|DEFINED|COMMAND|POLICY|TARGET|TEST|IN_LIST|ON|OFF|TRUE|FALSE|YES|NO)\b
+match constant  \b[A-Z][A-Z0-9_]{2,}\b
+match number    \b\d+(?:\.\d+)*\b
+match operator  [=<>]

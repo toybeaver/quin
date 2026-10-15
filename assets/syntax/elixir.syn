@@ -1,0 +1,60 @@
+# Elixir — quin syntax definition.
+
+name          elixir
+extensions    ex exs eex heex leex
+filenames     mix.lock
+shebang       elixir
+line-comment  #
+indent        2 spaces
+auto-pairs    () [] {} "" ''
+
+
+# Definitions: listed before the keyword lists so the name capture wins the tie.
+match keyword      \b(?:def|defp|defmacro|defmacrop|defguard|defguardp)\s+([a-z_]\w*[?!]?)   1:function
+
+keywords keyword.control  if else unless case cond with for do end after rescue catch raise throw try receive when
+keywords keyword          def defp defmodule defmacro defmacrop defstruct defprotocol defimpl defguard defguardp defexception defdelegate defoverridable import require alias use quote unquote unquote_splicing fn in and or not
+keywords constant.builtin true false nil
+keywords variable.builtin __MODULE__ __ENV__ __CALLER__ __DIR__ __STACKTRACE__ self
+keywords function.builtin is_atom is_binary is_bitstring is_boolean is_float is_function is_integer is_list is_map is_nil is_number is_pid is_port is_reference is_tuple length hd tl elem put_elem tuple_size map_size inspect send spawn apply raise throw exit
+
+# Comments
+region comment  #  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Heredocs, sigils and strings
+region comment.doc  '@(?:module)?doc\s+"""'  '"""'
+region comment.doc  '@(?:module|type)?doc\s+~S"""'  '"""'
+region string  '"""'  '"""'
+  match string.special  #\{[^}]*\}
+  match string.escape   \\.
+region string  "'''"  "'''"
+match regex   ~[rR]/(?:[^/\\]|\\.)*/[a-z]*
+match string  ~[a-zA-Z]\([^)]*\)[a-z]*
+match string  ~[a-zA-Z]\[[^\]]*\][a-z]*
+match string  ~[a-zA-Z]\{[^}]*\}[a-z]*
+match string  ~[a-zA-Z]\|[^|]*\|[a-z]*
+region string  '"'  '"|$'
+  match string.special  #\{[^}]*\}
+  match string.escape   \\(?:[\\"abdefnrstv0#]|x[0-9a-fA-F]{1,2}|u[0-9a-fA-F]{4}|u\{[0-9a-fA-F]+\})
+region string  "'"  "'|$"
+  match string.special  #\{[^}]*\}
+  match string.escape   \\.
+
+# Atoms, module attributes, modules
+match attribute  @[a-z_]\w*
+match constant   :[a-zA-Z_]\w*[?!]?
+match constant   :"[^"]*"
+match punctuation  \b([a-zA-Z_]\w*[?!]?):(?:\s|$)   1:property
+match type       \b[A-Z]\w*(?:\.[A-Z]\w*)*\b
+
+# Numbers
+match number  \b0[xX][0-9a-fA-F_]+\b
+match number  \b0[oO][0-7_]+\b
+match number  \b0[bB][01_]+\b
+match number  \b\d[\d_]*(?:\.\d[\d_]*)?(?:[eE][+-]?\d+)?\b
+match char    \?(?:\\.|.)
+
+# Definitions, calls, operators
+match punctuation  \b([a-z_]\w*[?!]?)\s*\(   1:function
+match operator     \|>|<>|\+\+|--|<-|->|=>|=~|===?|!==?|<=|>=|&&&?|\|\|\|?|\.\.|::|<<<|>>>|\^\^\^|[-+*/=<>!&|^~.]

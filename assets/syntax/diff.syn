@@ -1,0 +1,16 @@
+# Unified / context diff — quin syntax definition.
+
+name          diff
+extensions    diff patch rej
+
+match diff.header  '^(?:diff|index|similarity index|rename (?:from|to)|new file mode|deleted file mode|old mode|new mode|copy (?:from|to)|Binary files|Only in)\b.*$'
+match diff.header  ^\+\+\+.*$
+match diff.header  ^---.*$
+match diff.header  ^\*\*\*.*$
+match punctuation  ^(@@[^@]*@@)(.*)$   1:diff.hunk 2:function
+match diff.hunk    ^\*{15}.*$
+match diff.hunk    '^--- \d+,\d+ ----$'
+match diff.add     ^\+.*$
+match diff.remove  ^-.*$
+match diff.add     '^! .*$'
+match comment      '^\\ No newline at end of file'

@@ -1,0 +1,23 @@
+# XML (also SVG, plist, XSL...) — quin syntax definition.
+
+name          xml
+extensions    xml svg plist xsl xslt xsd dtd rss atom opml csproj fsproj vbproj props targets nuspec resx xaml ui glade
+line-comment  <!--
+block-comment <!-- -->
+indent        2 spaces
+auto-pairs    () [] {} "" '' <>
+
+region comment  <!--  -->
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+region string  <!\[CDATA\[  \]\]>
+match preprocessor  <\?[^?]*\?>
+match preprocessor  <!DOCTYPE[^>]*>
+
+# Tags with attributes
+region punctuation  </?([A-Za-z_][\w:.-]*)  /?>  1:tag
+  match punctuation  ([A-Za-z_:][\w:.-]*)\s*=   1:attribute
+  region string  '"'  '"'
+  region string  "'"  "'"
+
+# Entities
+match string.escape  &(?:[A-Za-z]+|#\d+|#x[0-9a-fA-F]+);

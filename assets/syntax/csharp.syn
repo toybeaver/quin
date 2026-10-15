@@ -1,0 +1,50 @@
+# C# — quin syntax definition.
+
+name          csharp
+extensions    cs csx
+line-comment  //
+block-comment /* */
+indent        4 spaces
+auto-pairs    () [] {} "" ''
+
+
+# Definitions: listed before the keyword lists so the name capture wins the tie.
+match keyword      \b(?:class|struct|interface|enum|record|namespace)\s+([A-Za-z_][\w.]*)   1:type
+
+keywords keyword.control  if else for foreach while do break continue return switch case default goto throw try catch finally yield await when
+keywords keyword          class struct interface enum record delegate event namespace using new this base is as in out ref params typeof sizeof nameof stackalloc checked unchecked unsafe fixed lock public private protected internal static readonly const abstract virtual override sealed partial extern volatile async var dynamic operator implicit explicit get set init value where select from orderby group by into join let ascending descending required global
+keywords type.builtin     void bool byte sbyte char short ushort int uint long ulong nint nuint float double decimal string object String Object List Dictionary HashSet IEnumerable Task Action Func
+keywords constant.builtin true false null
+
+# Preprocessor
+match preprocessor  ^\s*#\s*(?:region|endregion|if|else|elif|endif|define|undef|warning|error|line|pragma|nullable)\b.*$
+
+# Comments
+region comment.doc  ///  $
+  match tag  </?[a-z]+[^>]*>
+region comment  //  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+region comment  /\*  \*/
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Strings and characters
+region string  '\$?@"'  '"'
+  match string.escape   '""'
+  match string.special  \{[^{}]*\}
+region string  '\$?"""'  '"""'
+  match string.special  \{[^{}]*\}
+region string  '\$?"'  '"|$'
+  match string.escape   \\(?:['"\\0abfnrtv]|x[0-9a-fA-F]{1,4}|u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8})
+  match string.special  \{[^{}]*\}
+match char  "'(?:[^'\\]|\\.|\\u[0-9a-fA-F]{4})'"
+
+# Numbers
+match number  \b0[xX][0-9a-fA-F_]+(?:[uU]?[lL]?|[lL]?[uU]?)\b
+match number  \b0[bB][01_]+(?:[uU]?[lL]?)\b
+match number  \b\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?(?:[uU]?[lL]?|[fFdDmM])?\b
+
+# Attributes, definitions, calls, types
+match attribute    ^\s*\[[A-Za-z_][\w.]*(?:\([^)]*\))?(?:\s*,\s*[A-Za-z_][\w.]*(?:\([^)]*\))?)*\]
+match punctuation  \b([A-Za-z_]\w*)\s*(?:<[^<>()]*>)?\s*\(   1:function
+match type         \b[A-Z][A-Za-z0-9_]*\b
+match operator     =>|\?\?=?|\?\.|::|\+\+|--|<<=?|>>=?|&&|\|\||[-+*/%=<>!&|^~?]+

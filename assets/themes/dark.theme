@@ -1,0 +1,130 @@
+# quin default dark theme (One Dark inspired).
+# Format: scope #rrggbb [bold] [italic] [underline]   # trailing comments are fine.
+
+# --- UI ---
+ui.background        #282c34
+ui.text              #abb2bf
+ui.cursor            #528bff    # block cursor of the focused frame
+ui.cursor.insert     #98c379
+ui.cursor.secondary  #4b5263    # extra cursors (multi-selection)
+ui.cursor.inactive   #3e4452    # cursor in unfocused frames
+ui.selection         #3e4452
+ui.selection.primary #434c5e
+ui.cursorline        #2c313a
+ui.linenr            #4b5263
+ui.linenr.current    #abb2bf
+ui.gutter            #282c34
+ui.separator         #181a1f    # lines between frames
+ui.statusline        #21252b
+ui.statusline.text   #abb2bf
+ui.statusline.mode   #282c34    # text color on the mode badge
+ui.mode.normal       #61afef
+ui.mode.insert       #98c379
+ui.mode.replace      #e06c75
+ui.mode.select       #c678dd
+ui.mode.terminal     #e5c07b
+ui.tabbar            #21252b
+ui.tab               #5c6370
+ui.tab.active        #abb2bf
+ui.tab.active.bg     #282c34
+ui.popup             #21252b    # pickers, prompts
+ui.popup.border      #181a1f
+ui.popup.selected    #2c313a
+ui.popup.match       #e5c07b    # fuzzy-matched characters
+ui.prompt            #61afef
+ui.help              #5c6370
+ui.error             #e06c75
+ui.warning           #e5c07b
+ui.info              #56b6c2
+ui.match.bracket     #3e4452
+ui.search.match      #4e3a1f
+ui.whitespace        #3b4048
+ui.dim               #5c6370
+
+# --- Syntax ---
+comment              #5c6370 italic
+comment.doc          #7f848e italic
+comment.todo         #e5c07b bold
+keyword              #c678dd
+keyword.control      #c678dd
+keyword.import       #c678dd
+keyword.storage      #c678dd
+keyword.operator     #c678dd
+operator             #56b6c2
+type                 #e5c07b
+type.builtin         #e5c07b
+function             #61afef
+function.macro       #61afef
+function.builtin     #56b6c2
+constant             #d19a66
+constant.builtin     #d19a66
+number               #d19a66
+string               #98c379
+string.escape        #56b6c2
+string.special       #56b6c2
+char                 #98c379
+regex                #56b6c2
+attribute            #e5c07b
+annotation           #e5c07b
+variable             #abb2bf
+variable.builtin     #e06c75
+variable.parameter   #e06c75
+property             #e06c75
+namespace            #e5c07b
+label                #e06c75
+tag                  #e06c75
+punctuation          #abb2bf
+punctuation.special  #56b6c2
+preprocessor         #c678dd
+special              #56b6c2
+conceal              #4b5263
+
+# --- Markup (markdown & co) ---
+heading              #e06c75
+heading.1            #e06c75
+heading.2            #d19a66
+heading.3            #e5c07b
+heading.4            #98c379
+heading.5            #56b6c2
+heading.6            #61afef
+strong               #e5c07b
+emphasis             #c678dd
+strike               #5c6370
+code                 #98c379
+code.background      #2c313a
+code.block           #abb2bf
+link                 #61afef underline
+link.url             #56b6c2 underline
+link.text            #61afef
+list.marker          #61afef
+quote                #5c6370 italic
+rule                 #4b5263
+table                #abb2bf
+
+# --- Diff ---
+diff.add             #98c379
+diff.remove          #e06c75
+diff.header          #61afef bold
+diff.hunk            #56b6c2
+
+# --- Terminal palette (ANSI 0-15) ---
+term.black           #282c34
+term.red             #e06c75
+term.green           #98c379
+term.yellow          #e5c07b
+term.blue            #61afef
+term.magenta         #c678dd
+term.cyan            #56b6c2
+term.white           #abb2bf
+term.bright_black    #5c6370
+term.bright_red      #e06c75
+term.bright_green    #98c379
+term.bright_yellow   #e5c07b
+term.bright_blue     #61afef
+term.bright_magenta  #c678dd
+term.bright_cyan     #56b6c2
+term.bright_white    #ffffff
+
+# File tree
+directory            #61afef bold
+tree.hidden          #5c6370

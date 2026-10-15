@@ -1,0 +1,41 @@
+# Zig — quin syntax definition.
+
+name          zig
+extensions    zig zon
+line-comment  //
+indent        4 spaces
+auto-pairs    () [] {} "" ''
+
+# Definitions: listed before the keyword lists so the name capture wins the tie.
+match keyword           \b(?:fn)\s+([A-Za-z_]\w*)   1:function
+
+keywords keyword.control  if else switch while for break continue return try catch orelse defer errdefer unreachable suspend resume async await nosuspend
+keywords keyword          const var fn pub struct enum union error opaque packed extern export inline noinline comptime test threadlocal linksection align allowzero volatile callconv noalias anytype usingnamespace and or
+keywords type.builtin     void bool anyerror anyframe anyopaque noreturn type comptime_int comptime_float isize usize c_short c_ushort c_int c_uint c_long c_ulong c_longlong c_ulonglong c_longdouble f16 f32 f64 f80 f128 u8 u16 u32 u64 u128 i8 i16 i32 i64 i128
+keywords constant.builtin true false null undefined
+
+# Comments
+region comment.doc  ///  $
+region comment.doc  //!  $
+region comment  //  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Strings
+match string  \\\\.*$
+region string  '"'  '"|$'
+  match string.escape  \\(?:[nrt\\'"]|x[0-9a-fA-F]{2}|u\{[0-9a-fA-F]+\})
+match char  "'(?:[^'\\]|\\.|\\x[0-9a-fA-F]{2}|\\u\{[0-9a-fA-F]+\})'"
+
+# Numbers
+match number  \b0[xX][0-9a-fA-F_]+(?:\.[0-9a-fA-F_]*)?(?:[pP][+-]?\d+)?\b
+match number  \b0[oO][0-7_]+\b
+match number  \b0[bB][01_]+\b
+match number  \b\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?\b
+
+# Builtins, types, definitions, calls
+match function.builtin  @[A-Za-z_]\w*
+match type              \b[iu]\d+\b
+match punctuation       \b([A-Za-z_]\w*)\s*\(       1:function
+match type              \b[A-Z][A-Za-z0-9_]*\b
+match attribute         \berror\.[A-Za-z_]\w*
+match operator          \.\.\.?|\.\*|\.\?|=>|->|<<=?|>>=?|[-+*/%=<>!&|^~?]+

@@ -1,0 +1,52 @@
+# Python — quin syntax definition.
+
+name          python
+extensions    py pyi pyw pyx
+shebang       python python3
+line-comment  #
+indent        4 spaces
+auto-pairs    () [] {} "" ''
+
+# Definitions: listed before the keyword lists so the name capture wins the tie.
+match keyword      \b(?:def)\s+([A-Za-z_]\w*)     1:function
+match keyword      \b(?:class)\s+([A-Za-z_]\w*)   1:type
+
+keywords keyword.control  if elif else for while break continue return try except finally raise with as pass yield await match case
+keywords keyword          def class lambda import from global nonlocal del assert async and or not in is
+keywords constant.builtin True False None NotImplemented Ellipsis
+keywords variable.builtin self cls __name__ __file__ __doc__ __class__
+keywords type.builtin     int float complex str bytes bytearray bool list tuple dict set frozenset object type range slice memoryview
+keywords function.builtin print len open input isinstance issubclass hasattr getattr setattr delattr super enumerate zip map filter sorted reversed sum min max abs round any all iter next callable id hash repr format chr ord hex oct bin divmod pow vars dir globals locals exec eval compile staticmethod classmethod property
+
+# Comments
+region comment  #  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Docstrings / triple-quoted strings (prefix letters are part of the start)
+region string  '[rRbBfFuU]{0,2}"""'  '"""'
+  match string.escape   \\(?:[\\'"abfnrtv]|[0-7]{1,3}|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|N\{[^}]*\})
+  match string.special  \{[^{}]*\}
+region string  "[rRbBfFuU]{0,2}'''"  "'''"
+  match string.escape   \\(?:[\\'"abfnrtv]|[0-7]{1,3}|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|N\{[^}]*\})
+  match string.special  \{[^{}]*\}
+
+# Single-line strings
+region string  '[rRbBfFuU]{0,2}"'  '"|$'
+  match string.escape   \\(?:[\\'"abfnrtv]|[0-7]{1,3}|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|N\{[^}]*\})
+  match string.special  \{[^{}]*\}
+region string  "[rRbBfFuU]{0,2}'"  "'|$"
+  match string.escape   \\(?:[\\'"abfnrtv]|[0-7]{1,3}|x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|N\{[^}]*\})
+  match string.special  \{[^{}]*\}
+
+# Decorators, definitions, numbers
+match attribute    ^\s*@[A-Za-z_][\w.]*
+match number       \b0[xX][0-9a-fA-F_]+\b
+match number       \b0[oO][0-7_]+\b
+match number       \b0[bB][01_]+\b
+match number       \b\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?\d+)?[jJ]?\b
+match number       \B\.\d[\d_]*(?:[eE][+-]?\d+)?[jJ]?\b
+
+# Calls, types, operators
+match punctuation  \b([A-Za-z_]\w*)\s*\(   1:function
+match type         \b[A-Z][A-Za-z0-9_]*\b
+match operator     ->|:=|\*\*=?|//=?|<<=?|>>=?|[-+*/%=<>!&|^~@]+

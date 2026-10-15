@@ -1,0 +1,51 @@
+# LaTeX / BibTeX — quin syntax definition.
+
+name          latex
+extensions    tex sty cls ltx dtx bib bbx cbx
+line-comment  %
+indent        2 spaces
+auto-pairs    () [] {} $$
+
+# Comments
+region comment  %  $
+  match comment.todo  \b(?:TODO|FIXME|XXX|NOTE)\b
+
+# Sectioning: the title is drawn as a heading
+match keyword  \\(?:part|chapter)\*?\{([^}]*)\}                  1:heading.1
+match keyword  \\section\*?\{([^}]*)\}                            1:heading.2
+match keyword  \\subsection\*?\{([^}]*)\}                         1:heading.3
+match keyword  \\(?:subsubsection|paragraph|subparagraph)\*?\{([^}]*)\}   1:heading.4
+
+# Environments, document structure
+match keyword  \\(?:begin|end)\{([^}]*)\}                         1:type
+match keyword  \\(?:documentclass|usepackage|RequirePackage|input|include|bibliography|bibliographystyle|newcommand|renewcommand|newenvironment|def|let|providecommand|DeclareMathOperator)\b
+
+# Math
+region string  \$\$  \$\$
+  match function  \\[A-Za-z@]+
+region string  \\\[  \\\]
+  match function  \\[A-Za-z@]+
+region string  \$  \$
+  match function  \\[A-Za-z@]+
+
+# Text formatting
+match punctuation  \\(?:textbf|bfseries)\{([^}]*)\}   1:strong
+match punctuation  \\(?:textit|emph|itshape)\{([^}]*)\}   1:emphasis
+match punctuation  \\(?:texttt|verb)\{([^}]*)\}   1:code
+match punctuation  \\(?:url|href)\{([^}]*)\}   1:link.url
+match punctuation  \\(?:ref|eqref|cite|citep|citet|label|pageref|autoref)\{([^}]*)\}   1:label
+
+# Generic commands, special characters, options, numbers
+match function       \\[A-Za-z@]+\*?
+match string.escape  \\[^A-Za-z@\s]
+match attribute      \[[^\]]*\]
+match punctuation    [{}]
+match special        [&~^_]
+match number         \b\d+(?:\.\d+)?(?:pt|mm|cm|in|em|ex|bp|pc|dd|cc|sp)?\b
+
+# BibTeX entries
+match keyword      ^\s*@[A-Za-z]+\{([^,\s]*)   1:label
+match punctuation  '^\s*([A-Za-z_-]+)\s*='     1:property
+
+style strong    bold
+style emphasis  italic
