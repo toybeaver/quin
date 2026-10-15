@@ -64,6 +64,9 @@ pub struct GitState {
     pub files: HashMap<PathBuf, FileStatus>,
     /// Absolute paths of directories with a change somewhere inside.
     pub dirs: HashSet<PathBuf>,
+    /// Commits ahead of and behind the upstream (as last fetched); `None`
+    /// without an upstream.
+    pub sync: Option<Sync>,
 }
 
 impl GitState {
@@ -95,9 +98,8 @@ pub struct GitWatcher {
     rerun: bool,
     /// A pull or push running in the background.
     pub remote: Option<RemoteOp>,
-    /// Commits ahead of and behind the upstream, from the last background fetch.
-    pub sync: Option<Sync>,
-    fetch_pending: Option<(Receiver<Option<Sync>>, Instant)>,
+    /// A `git fetch` running in the background, and when it started.
+    fetch_pending: Option<(Receiver<()>, Instant)>,
     last_fetch: Option<Instant>,
 }
 
@@ -141,7 +143,6 @@ impl GitWatcher {
             queried_cwd: PathBuf::new(),
             rerun: false,
             remote: None,
-            sync: None,
             fetch_pending: None,
             last_fetch: None,
         }
@@ -153,42 +154,37 @@ impl GitWatcher {
     }
 
     /// Fetch the upstream every `FETCH_EVERY` (or right away with `now`) on
-    /// a thread of its own and pick up the ahead/behind counts it reports.
-    /// Nothing here waits: a slow or failing fetch only means stale counts.
-    /// Returns true when the counts changed.
-    pub fn poll_fetch(&mut self, wake: WakeFn, now: bool) -> bool {
-        let mut changed = false;
+    /// a thread of its own; when it is done the status (which counts commits
+    /// ahead and behind) is queried again. Nothing here waits: a slow or
+    /// failing fetch only means the counts lag behind the remote.
+    pub fn poll_fetch(&mut self, wake: WakeFn, now: bool) {
         if let Some((receiver, started)) = &self.fetch_pending {
             match receiver.try_recv() {
-                Ok(sync) => {
-                    changed = sync != self.sync;
-                    self.sync = sync;
+                Ok(()) => {
                     self.fetch_pending = None;
+                    self.rerun = true; // recount against what was fetched
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => self.fetch_pending = None,
                 Err(std::sync::mpsc::TryRecvError::Empty) => {
                     if started.elapsed() < FETCH_TIMEOUT {
-                        return false;
+                        return;
                     }
                     self.fetch_pending = None; // stuck: forget it and try again
                 }
             }
         }
-        let Some(root) = self.state.as_ref().map(|s| s.root.clone()) else {
-            changed |= self.sync.take().is_some();
-            return changed;
-        };
+        let Some(root) = self.state.as_ref().map(|s| s.root.clone()) else { return };
         let due = now || self.last_fetch.is_none_or(|t| t.elapsed() >= FETCH_EVERY);
         if due && self.fetch_pending.is_none() {
             self.last_fetch = Some(Instant::now());
             let (tx, rx) = channel();
             std::thread::spawn(move || {
-                let _ = tx.send(fetch_and_count(&root));
+                let _ = run_git(&root, &["fetch", "--quiet"], None);
+                let _ = tx.send(());
                 wake();
             });
             self.fetch_pending = Some((rx, Instant::now()));
         }
-        changed
     }
 
     /// Pick up a finished query and start a new one when due (or `now`).
@@ -239,10 +235,9 @@ fn git(cwd: &Path, args: &[&str]) -> Option<String> {
     output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-/// Fetch the upstream, then count commits ahead of and behind it. `None`
-/// without an upstream (or when git fails).
-pub fn fetch_and_count(root: &Path) -> Option<Sync> {
-    let _ = run_git(root, &["fetch", "--quiet"], None);
+/// Count commits ahead of and behind the upstream as last fetched (a local
+/// operation, instant). `None` without an upstream or when git fails.
+pub fn count_sync(root: &Path) -> Option<Sync> {
     let (ok, output) = run_git(root, &["rev-list", "--left-right", "--count", "@{u}...HEAD"], None);
     if !ok {
         return None;
@@ -270,7 +265,8 @@ pub fn query(cwd: &Path) -> Option<GitState> {
     }
     let status = git(cwd, &["status", "--porcelain", "-z", "--untracked-files=all"]).unwrap_or_default();
     let (entries, files, dirs) = parse_status(&root, &status);
-    Some(GitState { root, branch, entries, files, dirs })
+    let sync = count_sync(&root);
+    Some(GitState { root, branch, entries, files, dirs, sync })
 }
 
 /// Parse `git status --porcelain -z`: `XY path\0`, with a second
@@ -982,7 +978,7 @@ mod tests {
     fn status_text_lists_sections_or_says_nothing() {
         let root = PathBuf::from("/r");
         let (entries, files, dirs) = parse_status(&root, " M src/a.rs\0?? new.txt\0A  added.rs\0");
-        let state = GitState { root: root.clone(), branch: "main".into(), entries, files, dirs };
+        let state = GitState { root: root.clone(), branch: "main".into(), entries, files, dirs, sync: None };
         let none = (HashSet::new(), HashMap::new());
         let (text, lines) = status_text(Some(&state), &none.0, &none.1);
         assert!(text.starts_with("Head:  main\n"));

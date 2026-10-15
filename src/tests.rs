@@ -849,20 +849,24 @@ fn git_status_marks_the_tree_and_the_status_line() {
     keys(&mut ed, "p");
     wait_remote(&mut ed);
     assert!(ed.message.as_ref().is_some_and(|m| m.text.contains("Already up to date")), "{:?}", ed.message);
-    // The background fetch counts commits ahead of and behind the upstream.
-    assert_eq!(crate::git::fetch_and_count(&dir), Some(crate::git::Sync { ahead: 0, behind: 0 }));
+    // The status query counts commits ahead of and behind the upstream (locally, at once).
+    assert_eq!(crate::git::count_sync(&dir), Some(crate::git::Sync { ahead: 0, behind: 0 }));
     std::fs::write(dir.join("top.txt"), "later").unwrap();
     git(&dir, &["commit", "-q", "-am", "local only"]).unwrap();
-    assert_eq!(crate::git::fetch_and_count(&dir), Some(crate::git::Sync { ahead: 1, behind: 0 }));
+    assert_eq!(crate::git::count_sync(&dir), Some(crate::git::Sync { ahead: 1, behind: 0 }));
     ed.poll_git(true);
     for _ in 0..600 {
         ed.poll_git(false);
-        if ed.git.sync == Some(crate::git::Sync { ahead: 1, behind: 0 }) {
+        if ed.git.state.as_ref().and_then(|s| s.sync) == Some(crate::git::Sync { ahead: 1, behind: 0 }) {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    assert_eq!(ed.git.sync, Some(crate::git::Sync { ahead: 1, behind: 0 }), "the watcher picked the counts up");
+    assert_eq!(
+        ed.git.state.as_ref().and_then(|s| s.sync),
+        Some(crate::git::Sync { ahead: 1, behind: 0 }),
+        "the watcher picked the counts up"
+    );
     std::fs::remove_dir_all(&bare).unwrap();
     for _ in 0..300 {
         ed.poll_git(false);

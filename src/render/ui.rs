@@ -718,7 +718,7 @@ fn draw_status_line(ed: &Editor, ui: &mut Ui, rect: Rect) {
         ui.text(x, y, &label, badge_fg, true);
         x += w;
         // Commits ahead and behind the upstream; a spinner while pulling or pushing.
-        let sync = match (&ed.git.remote, &ed.git.sync) {
+        let sync = match (&ed.git.remote, &git.sync) {
             (Some(op), _) => Some(op.indicator()),
             (None, Some(sync)) => sync.label(),
             (None, None) => None,

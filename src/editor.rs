@@ -670,8 +670,8 @@ impl Editor {
         let wake = self.wake.clone().unwrap_or_else(|| std::sync::Arc::new(|| {}));
         // A finished pull or push changes the status: query again right away.
         let finished = crate::git::poll_remote(self);
-        let changed = self.git.poll(&self.cwd.clone(), wake.clone(), finished || now);
-        let synced = self.git.poll_fetch(wake, finished || now);
+        self.git.poll_fetch(wake.clone(), finished || now);
+        let changed = self.git.poll(&self.cwd.clone(), wake, finished || now);
         if changed && self.tree.as_ref().is_some_and(|t| self.buffers.get(&t.buffer).is_some_and(|b| !b.is_modified())) {
             crate::tree::render(self);
         }
@@ -679,7 +679,7 @@ impl Editor {
             crate::git::render_status(self);
         }
         // A finished pull or push takes its spinner with it: that needs a redraw too.
-        changed || synced || finished
+        changed || finished
     }
 
     /// Any view still sliding its scroll or cursor (the window keeps redrawing).
