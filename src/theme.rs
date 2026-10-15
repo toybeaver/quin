@@ -197,8 +197,12 @@ impl Theme {
             ("diff.remove", p(1), ""),
             ("diff.header", p(4), "bold"),
             ("diff.hunk", p(6), ""),
+            ("diff.modified", p(3), ""),
             ("directory", p(4), "bold"),
             ("tree.hidden", dim, ""),
+            ("tree.modified", p(3), ""),
+            ("tree.new", p(2), ""),
+            ("ui.git", p(6), ""),
         ];
         let mut source = String::new();
         for (scope, color, attrs) in entries {

@@ -137,6 +137,13 @@ pub struct Editor {
     pub font_family: String,
     /// The file tree sidebar, once opened.
     pub tree: Option<crate::tree::Tree>,
+    /// Branch and changed files of the working directory's repository.
+    pub git: crate::git::GitWatcher,
+    /// The git status buffer, once opened.
+    pub git_buffer: Option<crate::git::StatusBuffer>,
+    /// A frame floating in the middle of the window (the commit message); it
+    /// has the focus while it exists.
+    pub float: Option<ViewId>,
 
     /// Frame rectangles of the current tab from the last draw (for mouse and
     /// window navigation).
@@ -205,8 +212,11 @@ impl Editor {
             cwd,
             quit: false,
             font_dirty: false,
-            font_family: "Hack".to_string(),
+            font_family: "Iosevka".to_string(),
             tree: None,
+            git: crate::git::GitWatcher::new(),
+            git_buffer: None,
+            float: None,
             frame_rects: Vec::new(),
             tab_rects: Vec::new(),
             wake: None,
@@ -314,7 +324,24 @@ impl Editor {
     }
 
     pub fn focused_view(&self) -> ViewId {
-        self.tab().focus
+        self.float.unwrap_or(self.tab().focus)
+    }
+
+    /// Show a buffer in a floating frame over the current tab.
+    pub fn open_float(&mut self, buffer: BufferId) -> ViewId {
+        let view = self.new_view(buffer);
+        self.float = Some(view);
+        self.sync_mode_with_buffer();
+        view
+    }
+
+    /// Close the floating frame and its buffer.
+    pub fn close_float(&mut self) {
+        let Some(view) = self.float.take() else { return };
+        if let Some(view) = self.views.remove(&view) {
+            let _ = self.close_buffer(view.buffer, true);
+        }
+        self.sync_mode_with_buffer();
     }
 
     pub fn view(&self) -> &View {
@@ -344,6 +371,9 @@ impl Editor {
     }
 
     pub fn focus_view(&mut self, id: ViewId) {
+        if self.float.is_some() {
+            return; // the floating frame keeps the focus until it closes
+        }
         if !self.views.contains_key(&id) || !self.tab().root.contains(id) {
             return;
         }
@@ -403,6 +433,10 @@ impl Editor {
 
     /// Close a frame. The last frame of the last tab stays open.
     pub fn close_view(&mut self, id: ViewId) {
+        if self.float == Some(id) {
+            self.close_float();
+            return;
+        }
         let tab_index = match self.tabs.iter().position(|t| t.root.contains(id)) {
             Some(i) => i,
             None => return,
@@ -468,8 +502,8 @@ impl Editor {
             }
         }
         let mode = if mode.is_editing() && self.buffer().is_terminal() { Mode::Terminal } else { mode };
-        if mode.is_editing() && self.buffer().readonly {
-            self.set_error("buffer is read-only");
+        if mode.is_editing() && (self.buffer().readonly || self.view().readonly) {
+            self.set_error(if self.view().readonly { "this frame is a read-only preview" } else { "buffer is read-only" });
             return;
         }
         self.mode = mode;
@@ -504,6 +538,10 @@ impl Editor {
     pub fn apply_to(&mut self, buffer_id: BufferId, view_id: ViewId, tx: Transaction, selection: Selection) {
         if tx.is_empty() {
             self.views.get_mut(&view_id).expect("view").selection = selection;
+            return;
+        }
+        if self.views[&view_id].readonly {
+            self.set_error("this frame is a read-only preview");
             return;
         }
         let buffer = self.buffers.get_mut(&buffer_id).expect("buffer");
@@ -607,6 +645,35 @@ impl Editor {
             let (view, _) = self.current();
             view.selection = view.selection.clamp(len);
         }
+        self.close_exited_terminals() || changed
+    }
+
+    /// A shell that exited takes its frame with it (the last frame of the last
+    /// tab shows another buffer instead). Returns true if anything closed.
+    fn close_exited_terminals(&mut self) -> bool {
+        let exited: Vec<BufferId> =
+            self.buffers.values().filter(|b| b.terminal.as_ref().is_some_and(|t| t.exited())).map(|b| b.id).collect();
+        for id in &exited {
+            let views: Vec<ViewId> = self.views.values().filter(|v| v.buffer == *id).map(|v| v.id).collect();
+            for view in views {
+                self.close_view(view);
+            }
+            let _ = self.close_buffer(*id, true);
+        }
+        !exited.is_empty()
+    }
+
+    /// Refresh the git state when due (`now` forces it). The tree re-renders
+    /// its markers when something changed. Returns true on a change.
+    pub fn poll_git(&mut self, now: bool) -> bool {
+        let wake = self.wake.clone().unwrap_or_else(|| std::sync::Arc::new(|| {}));
+        let changed = self.git.poll(&self.cwd.clone(), wake, now);
+        if changed && self.tree.as_ref().is_some_and(|t| self.buffers.get(&t.buffer).is_some_and(|b| !b.is_modified())) {
+            crate::tree::render(self);
+        }
+        if changed && self.git_buffer.is_some() {
+            crate::git::render_status(self);
+        }
         changed
     }
 
@@ -686,14 +753,8 @@ impl Editor {
             self.run_command(cmd, Ctx::default());
             return;
         }
+        self.view_mut().scrolled_back = false;
         if let Some(terminal) = &mut self.buffer_mut().terminal {
-            if terminal.exited() {
-                // Any key closes a finished terminal.
-                let id = self.view().buffer;
-                let _ = self.close_buffer(id, true);
-                self.set_message("terminal closed");
-                return;
-            }
             terminal.send_key(key);
         }
     }
@@ -737,19 +798,17 @@ impl Editor {
             Mode::Select => &self.keymaps.select,
             _ => &self.keymaps.normal,
         };
-        let mut node = None;
-        let mut map = keymap;
-        for pending in &self.pending_keys {
-            if let Some(KeyNode::Menu(m)) = map.get(*pending) {
-                map = m;
-            }
-        }
-        if let Some(found) = map.get(key) {
-            node = Some(match found {
-                KeyNode::Command(cmd) => Ok(*cmd),
-                KeyNode::Menu(_) => Err(()),
-            });
-        }
+        // The git status buffer has bindings of its own, tried first.
+        let pending = &self.pending_keys;
+        let found = if self.buffer().git {
+            lookup_key(&self.keymaps.git, pending, key).or_else(|| lookup_key(keymap, pending, key))
+        } else {
+            lookup_key(keymap, pending, key)
+        };
+        let node = found.map(|found| match found {
+            KeyNode::Command(cmd) => Ok(*cmd),
+            KeyNode::Menu(_) => Err(()),
+        });
         match node {
             Some(Ok(cmd)) => {
                 let sequence = std::mem::take(&mut self.pending_keys);
@@ -826,6 +885,17 @@ impl Editor {
     pub fn root(&self) -> &Node {
         &self.tab().root
     }
+}
+
+/// Follow the keys typed so far down a keymap's menus, then look up `key`.
+fn lookup_key<'a>(mut map: &'a Keymap, pending: &[Key], key: Key) -> Option<&'a KeyNode> {
+    for typed in pending {
+        match map.get(*typed) {
+            Some(KeyNode::Menu(menu)) => map = menu,
+            _ => return None,
+        }
+    }
+    map.get(key)
 }
 
 pub fn build_styles(theme: &Theme, registry: &Registry) -> StyleTable {

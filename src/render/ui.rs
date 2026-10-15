@@ -104,14 +104,28 @@ pub fn draw(ed: &mut Editor, ui: &mut Ui) {
         // Separator lines on the right and bottom edges, inside the frames area.
         if rect.right() < frames_rect.right() {
             ui.painter.reset_clip();
-            ui.painter.vline(rect.right(), rect.y, rect.h, separator);
+            ui.painter.fill_rect(Rect::new(rect.right(), rect.y, crate::frame::SEPARATOR, rect.h), separator);
         }
         if rect.bottom() < frames_rect.bottom() {
             ui.painter.reset_clip();
-            ui.painter.hline(rect.x, rect.bottom(), rect.w, separator);
+            ui.painter.fill_rect(Rect::new(rect.x, rect.bottom(), rect.w, crate::frame::SEPARATOR), separator);
         }
     }
     ui.painter.reset_clip();
+    // The floating frame (commit message) sits over the middle of the window.
+    if let Some(float) = ed.float {
+        let cell_w = ui.font.cell_w as i32;
+        let cell_h = ui.font.cell_h as i32;
+        let w = (frames_rect.w * 7 / 10).max(cell_w * 40).min(frames_rect.w);
+        let h = (frames_rect.h / 2).max(cell_h * 8).min(frames_rect.h);
+        let rect = Rect::new(frames_rect.x + (frames_rect.w - w) / 2, frames_rect.y + (frames_rect.h - h) / 2, w, h);
+        let border = ed.theme.ui("ui.popup.border", Color::BLACK);
+        ui.painter.fill_rect(Rect::new(rect.x - 3, rect.y - 3, rect.w + 6, rect.h + 6), ed.theme.ui("ui.prompt", border));
+        ui.painter.fill_rect(rect, theme_bg);
+        draw_view(ed, ui, float, rect, true);
+        ui.painter.reset_clip();
+        ed.frame_rects.insert(0, (float, rect));
+    }
     draw_status_line(ed, ui, Rect::new(0, height - bar, width, bar));
     if let Overlay::Picker(_) = ed.overlay {
         draw_picker(ed, ui, frames_rect);
@@ -202,6 +216,43 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
     if first_line != ed.views[&view_id].scroll_line || slide != 0 {
         layouts = layout_visible_lines(ed, ui.font, view_id, first_line, text_rect.h as f32 + cell_h, base, tab_width);
     }
+    // Git: hunk headers in the status buffer stand out; the preview split
+    // colours added, modified and deleted lines of the file against HEAD.
+    let theme_bg = ed.theme.ui("ui.background", Color::BLACK);
+    let marks = crate::git::marks_for(ed, view_id);
+    if ed.buffers[&buffer_id].git {
+        let hunk_bg = theme_bg.mix(ed.theme.color("diff.hunk"), 0.3);
+        for visible in &mut layouts {
+            if ed.buffers[&buffer_id].line_text(visible.line).starts_with("    @@") {
+                visible.background = Some(hunk_bg);
+            }
+        }
+    }
+    let (add_color, modified_color, remove_color) =
+        (ed.theme.color("diff.add"), ed.theme.color("diff.modified"), ed.theme.color("diff.remove"));
+    if let Some(marks) = &marks {
+        for visible in &mut layouts {
+            if let Some(change) = marks.lines.get(&visible.line) {
+                visible.background = Some(theme_bg.mix(if change.added { add_color } else { modified_color }, 0.2));
+            }
+        }
+    }
+    // The file tree colours changed and new files by their git status.
+    if ed.buffers[&buffer_id].tree && !ed.buffers[&buffer_id].is_modified() {
+        let modified = ed.theme.color("tree.modified");
+        let new = ed.theme.color("tree.new");
+        for visible in &mut layouts {
+            let status = ed.tree.as_ref().and_then(|t| t.entries.get(visible.line)).and_then(|e| ed.git.state.as_ref()?.status(&e.path));
+            let color = match status {
+                Some(crate::git::FileStatus::Modified) => modified,
+                Some(crate::git::FileStatus::New) => new,
+                None => continue,
+            };
+            for cell in &mut visible.layout.cells {
+                cell.style.fg = color;
+            }
+        }
+    }
 
     let view = &ed.views[&view_id];
     let buffer = &ed.buffers[&buffer_id];
@@ -248,6 +299,24 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
         // Lines inside a block with a background (fenced code) get it across the frame.
         if let Some(bg) = visible.background {
             ui.painter.fill_rect(Rect::new(text_rect.x, y_px, text_rect.w, layout.height as i32), bg);
+        }
+
+        // Git preview: the exact changed span of a modified line, and a red
+        // marker where lines were deleted.
+        if let Some(marks) = &marks {
+            if let Some(change) = marks.lines.get(line) {
+                for (from, to) in &change.spans {
+                    let x0 = origin_x + layout.x_of(*from);
+                    let x1 = origin_x + layout.x_of(*to);
+                    ui.painter.fill_rect(
+                        Rect::new(x0 as i32, y_px, (x1 - x0).max(0.0) as i32, layout.height as i32),
+                        theme_bg.mix(modified_color, 0.55),
+                    );
+                }
+            }
+            if marks.deleted_before.contains(line) {
+                ui.painter.fill_rect(Rect::new(text_rect.x, y_px, text_rect.w, 2), remove_color);
+            }
         }
 
         // Selection backgrounds.
@@ -488,7 +557,7 @@ fn draw_terminal_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect,
         terminal.resize(cols as u16, rows as u16);
         let total = terminal.total_rows();
         let view = ed.views.get_mut(&view_id).expect("view");
-        if terminal_mode {
+        if terminal_mode && !view.scrolled_back {
             // Follow the live screen.
             view.scroll_line = total.saturating_sub(rows);
         }
@@ -557,7 +626,7 @@ fn draw_terminal_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect,
 
     // Cursor: the terminal's own in terminal mode, the view's selection otherwise.
     if terminal_mode {
-        if terminal.cursor_visible() && !terminal.exited() {
+        if terminal.cursor_visible() {
             let (crow, ccol) = terminal.cursor();
             if crow >= view.scroll_line {
                 let x = text_rect.x + (ccol as f32 * cell_w) as i32;
@@ -598,14 +667,6 @@ fn draw_terminal_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect,
                 ui.painter.rect_outline(cursor_rect, color);
             }
         }
-    }
-    if terminal.exited() {
-        let msg = "[process exited - press any key to close]";
-        let w = ui.text_width(msg);
-        let x = rect.x + (rect.w - w) / 2;
-        let y = rect.y + rect.h / 2;
-        ui.painter.fill_rect(Rect::new(x - 4, y - 2, w + 8, cell_h as i32 + 4), ed.theme.ui("ui.popup", Color::BLACK));
-        ui.text(x, y, msg, ed.theme.ui("ui.warning", Color::WHITE), true);
     }
     ui.painter.reset_clip();
 }
@@ -648,7 +709,16 @@ fn draw_status_line(ed: &Editor, ui: &mut Ui, rect: Rect) {
     let badge_w = ui.text_width(&badge);
     ui.painter.fill_rect(Rect::new(rect.x, rect.y, badge_w, rect.h), badge_bg);
     ui.text(rect.x, y, &badge, badge_fg, true);
-    let mut x = rect.x + badge_w + cell_w;
+    let mut x = rect.x + badge_w;
+    // Git badge: the branch, starred when the tree has changes.
+    if let Some(git) = &ed.git.state {
+        let label = format!(" {} ", git.label());
+        let w = ui.text_width(&label);
+        ui.painter.fill_rect(Rect::new(x, rect.y, w, rect.h), ed.theme.ui("ui.git", badge_bg));
+        ui.text(x, y, &label, badge_fg, true);
+        x += w;
+    }
+    x += cell_w;
 
     // Right side: pending keys, selections, position, language.
     let view = ed.view();
@@ -681,7 +751,7 @@ fn draw_status_line(ed: &Editor, ui: &mut Ui, rect: Rect) {
     if buffer.is_modified() {
         name.push_str(" [+]");
     }
-    if buffer.readonly && !buffer.is_terminal() {
+    if (buffer.readonly || view.readonly) && !buffer.is_terminal() {
         name.push_str(" [ro]");
     }
     x += ui.text(x, y, &name, fg, false) + 2 * cell_w;
@@ -898,6 +968,14 @@ fn draw_preview(ed: &mut Editor, ui: &mut Ui, rect: Rect, item: Option<PickerIte
         }
         y += cell_h;
     }
+}
+
+/// Which terminal cell (column, screen row) lies under a pixel of a terminal frame.
+pub fn terminal_cell_at(font: &FontSet, rect: Rect, px: i32, py: i32) -> (usize, usize) {
+    let gutter = font.cell_w as i32;
+    let col = ((px - rect.x - gutter).max(0) as f32 / font.cell_w) as usize;
+    let row = ((py - rect.y).max(0) as f32 / font.cell_h) as usize;
+    (col, row)
 }
 
 /// Which text position lies under a pixel in a frame (for mouse clicks).

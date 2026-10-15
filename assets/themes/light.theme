@@ -98,6 +98,7 @@ table                #383a42
 diff.add             #50a14f
 diff.remove          #e45649
 diff.header          #4078f2 bold
+diff.modified        #c18401
 diff.hunk            #0184bc
 
 # --- Terminal palette ---
@@ -121,3 +122,6 @@ term.bright_white    #ffffff
 # File tree
 directory            #4078f2 bold
 tree.hidden          #a0a1a7
+tree.modified        #c18401
+tree.new             #50a14f
+ui.git               #0184bc    # branch badge in the status line

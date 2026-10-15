@@ -363,7 +363,15 @@ fn terminal_is_a_plain_buffer_with_a_mode() {
         return; // no pty available (CI sandbox)
     }
     assert_eq!(ed.mode, Mode::Terminal);
-    assert_eq!(ed.root().leaves().len(), 2, ":terminal splits the frame");
+    assert_eq!(ed.root().leaves().len(), 1, ":terminal opens in the current frame");
+    keys(&mut ed, "C-esc g p");
+    assert_eq!(text(&ed), "code\n", "the file is still a buffer, like any other");
+    keys(&mut ed, "space w v g n");
+    assert!(ed.buffer().is_terminal());
+    assert_eq!(ed.mode, Mode::Normal);
+    keys(&mut ed, "i");
+    assert_eq!(ed.mode, Mode::Terminal);
+    assert_eq!(ed.root().leaves().len(), 2);
     keys(&mut ed, "C-esc");
     assert_eq!(ed.mode, Mode::Normal);
     keys(&mut ed, "i");
@@ -437,11 +445,12 @@ fn space_c_closes_the_frame() {
 #[test]
 fn zoom_changes_the_font_size() {
     let mut ed = editor_with("");
+    let base = Config::default().font_size;
     keys(&mut ed, "C-= C-+ C--");
-    assert_eq!(ed.config.font_size, 15.0);
+    assert_eq!(ed.config.font_size, base + 1.0);
     assert!(ed.font_dirty);
     keys(&mut ed, "i C--");
-    assert_eq!(ed.config.font_size, 14.0, "zoom works in insert mode too");
+    assert_eq!(ed.config.font_size, base, "zoom works in insert mode too");
 }
 
 #[test]
@@ -499,7 +508,7 @@ fn frames_resize_and_the_menu_stays_open() {
     keys(&mut ed, "space w v");
     let widths = |ed: &Editor| {
         let mut rects = Vec::new();
-        ed.root().layout(crate::render::Rect::new(0, 0, 1001, 501), &mut rects);
+        ed.root().layout(crate::render::Rect::new(0, 0, 1002, 502), &mut rects);
         rects.iter().map(|(_, r)| r.w).collect::<Vec<_>>()
     };
     assert_eq!(widths(&ed), vec![500, 500]);
@@ -515,7 +524,7 @@ fn frames_resize_and_the_menu_stays_open() {
     assert!(ed.message.as_ref().is_some_and(|m| m.text.contains("no frame")), "nothing stacked to resize against");
     keys(&mut ed, "esc space w s space w - esc");
     let mut rects = Vec::new();
-    ed.root().layout(crate::render::Rect::new(0, 0, 1001, 501), &mut rects);
+    ed.root().layout(crate::render::Rect::new(0, 0, 1002, 502), &mut rects);
     let focused = rects.iter().find(|(v, _)| *v == ed.focused_view()).unwrap().1;
     assert_eq!(focused.h, 225, "shorter by a twentieth of the split");
 }
@@ -537,7 +546,8 @@ fn resizing_only_moves_the_shared_edge() {
     // Widths in a 1000-pixel row, ignoring the one-pixel separators.
     let widths = |ed: &Editor, expected: &[i32], why: &str| {
         let mut rects = Vec::new();
-        ed.root().layout(crate::render::Rect::new(0, 0, 1000 + expected.len() as i32 - 1, 500), &mut rects);
+        let separators = crate::frame::SEPARATOR * (expected.len() as i32 - 1);
+        ed.root().layout(crate::render::Rect::new(0, 0, 1000 + separators, 500), &mut rects);
         let got: Vec<i32> = rects.iter().map(|(_, r)| r.w).collect();
         assert!(got.len() == expected.len() && got.iter().zip(expected).all(|(g, e)| (g - e).abs() <= 1), "{why}: {got:?} vs {expected:?}");
     };
@@ -561,7 +571,7 @@ fn theme_picker_previews_and_rolls_back() {
     assert_eq!(ed.theme.color("ui.background"), crate::render::Color::from_hex("1e1e2e").unwrap(), "typing previews the match");
     keys(&mut ed, "esc");
     assert_eq!(ed.theme.color("ui.background"), before, "escape rolls back");
-    assert_eq!(ed.config.theme, "dark");
+    assert_eq!(ed.config.theme, Config::default().theme);
     keys(&mut ed, ": text:theme ret text:gruvbox-dark ret");
     assert_eq!(ed.config.theme, "gruvbox-dark");
     assert_ne!(ed.theme.color("ui.background"), before);
@@ -657,4 +667,155 @@ fn cd_and_open_expand_tilde() {
     assert_eq!(ed.cwd, std::path::PathBuf::from(&home));
     assert_eq!(crate::files::expand_home("~/x"), std::path::PathBuf::from(&home).join("x"));
     assert_eq!(crate::files::expand_home("~x"), std::path::PathBuf::from("~x"));
+}
+
+#[test]
+fn an_exited_shell_closes_its_frame() {
+    let mut ed = editor_with("code\n");
+    keys(&mut ed, "space w s : text:terminal ret");
+    if ed.message.as_ref().is_some_and(|m| m.text.contains("cannot start terminal")) {
+        return; // no pty available
+    }
+    assert_eq!(ed.root().leaves().len(), 2);
+    keys(&mut ed, "text:exit ret");
+    for _ in 0..100 {
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        if ed.process_terminals() && ed.root().leaves().len() == 1 {
+            break;
+        }
+    }
+    assert_eq!(ed.root().leaves().len(), 1, "the terminal frame is gone");
+    assert!(!ed.buffer().is_terminal());
+    assert_eq!(text(&ed), "code\n", "back to the file, in normal mode");
+    assert_eq!(ed.mode, Mode::Normal);
+    assert!(ed.buffers.values().all(|b| !b.is_terminal()), "the buffer is closed too");
+}
+
+#[test]
+fn git_status_marks_the_tree_and_the_status_line() {
+    let git = |dir: &std::path::Path, args: &[&str]| {
+        std::process::Command::new("git").arg("-C").arg(dir).args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(args).output()
+    };
+    let dir = std::env::temp_dir().join(format!("quin-git-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    let dir = dir.canonicalize().unwrap();
+    if git(&dir, &["init", "-q"]).is_err() {
+        return; // no git on this machine
+    }
+    std::fs::write(dir.join("sub/keep.rs"), "a").unwrap();
+    std::fs::write(dir.join("top.txt"), "b").unwrap();
+    git(&dir, &["add", "."]).unwrap();
+    git(&dir, &["commit", "-q", "-m", "init"]).unwrap();
+    let clean = crate::git::query(&dir).unwrap();
+    assert!(!clean.dirty() && !clean.branch.is_empty());
+    std::fs::write(dir.join("sub/keep.rs"), "changed").unwrap();
+    std::fs::write(dir.join("new.txt"), "n").unwrap();
+    let state = crate::git::query(&dir).unwrap();
+    assert_eq!(state.label(), format!("{}*", clean.branch));
+    assert_eq!(state.status(&dir.join("sub/keep.rs")), Some(crate::git::FileStatus::Modified));
+    assert_eq!(state.status(&dir.join("new.txt")), Some(crate::git::FileStatus::New));
+    assert_eq!(state.status(&dir.join("top.txt")), None);
+    assert!(state.dir_changed(&dir.join("sub")) && state.dir_changed(&dir));
+    let mut ed = editor_with("");
+    keys(&mut ed, &format!(": text:cd space text:{} ret", dir.display()));
+    ed.git.state = Some(state);
+    keys(&mut ed, "A-e");
+    assert_eq!(text(&ed), "* sub/\nnew.txt\ntop.txt\n", "changed directories carry a marker");
+    keys(&mut ed, "ret");
+    assert_eq!(text(&ed), "* sub/\n  keep.rs\nnew.txt\ntop.txt\n");
+    keys(&mut ed, "G e O text:more.txt esc : text:write ret");
+    assert!(dir.join("more.txt").is_file(), "editing a line with a marker still works: {:?}", ed.message);
+    // The status buffer: its own tab, sections, ret opens the file.
+    keys(&mut ed, "space l");
+    for _ in 0..200 {
+        ed.poll_git(false);
+        if !ed.git.in_flight() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(ed.tabs.len(), 2);
+    assert!(ed.buffer().git && ed.buffer().readonly);
+    let status = text(&ed);
+    assert!(status.starts_with(&format!("Head:  {}\n", clean.branch)), "{status}");
+    assert!(status.contains("Untracked files (2)\n> untracked    more.txt\n> untracked    new.txt\n"), "{status}");
+    assert!(status.contains("Unstaged changes (1)\n> modified     sub/keep.rs\n"), "{status}");
+    // ret opens the file in a split on the right; the status buffer keeps the focus.
+    keys(&mut ed, "/ text:keep ret ret");
+    assert_eq!(ed.root().leaves().len(), 2);
+    let file_view = ed.git_buffer.as_ref().unwrap().file_view.unwrap();
+    assert_eq!(ed.focused_view(), file_view, "ret moves into the preview");
+    assert_eq!(text(&ed), "changed");
+    assert!(ed.view().readonly, "the preview split is read-only");
+    keys(&mut ed, "i text:x esc");
+    assert_eq!(text(&ed), "changed", "typing in the preview is refused");
+    keys(&mut ed, "space w w / text:new.txt ret ret");
+    assert_eq!(ed.root().leaves().len(), 2, "the same split is reused");
+    assert_eq!((ed.focused_view(), text(&ed)), (file_view, "n".to_string()));
+    let marks = crate::git::marks_for(&ed, file_view);
+    assert!(marks.is_some_and(|m| m.lines.get(&0).is_some_and(|c| c.added)), "an untracked file is all new lines");
+    keys(&mut ed, "space w w esc");
+    assert_eq!(ed.root().leaves().len(), 1, "esc in the status buffer closes the preview");
+    keys(&mut ed, "esc");
+    assert_eq!(ed.root().leaves().len(), 1);
+    // tab unfolds the diff, space stages the hunk.
+    keys(&mut ed, "/ text:keep ret tab");
+    let status = text(&ed);
+    assert!(
+        status.contains("v modified     sub/keep.rs\n    @@") && status.contains("    -a") && status.contains("    +changed"),
+        "{status}"
+    );
+    keys(&mut ed, "j j s");
+    for _ in 0..300 {
+        ed.poll_git(false);
+        if text(&ed).contains("Staged changes (1)") && !ed.git.in_flight() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let status = text(&ed);
+    assert!(status.contains("Staged changes (1)\n> modified     sub/keep.rs\n"), "the hunk is staged: {status}");
+    assert!(!status.contains("Unstaged changes"), "{status}");
+    keys(&mut ed, "/ text:more.txt ret s");
+    for _ in 0..300 {
+        ed.poll_git(false);
+        if text(&ed).contains("Staged changes (2)") && !ed.git.in_flight() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(text(&ed).contains("> new file     more.txt"), "an untracked file is staged whole: {}", text(&ed));
+    keys(&mut ed, "space l");
+    assert_eq!((ed.tabs.len(), ed.tab_index), (2, 1), "space l goes back to the status tab");
+    // c c opens a floating commit message; :write commits it.
+    keys(&mut ed, "c c");
+    assert!(ed.float.is_some() && ed.mode == Mode::Insert, "{:?}", ed.message);
+    assert_eq!(ed.buffer().commit, Some(false));
+    assert!(text(&ed).contains("# Changes to be committed:\n") && text(&ed).contains("#\tmodified:   sub/keep.rs\n"), "{}", text(&ed));
+    keys(&mut ed, "text:Stage space text:things esc : text:write ret");
+    assert!(ed.float.is_none(), "{:?}", ed.message);
+    assert!(ed.buffer().git, "back in the status buffer");
+    let subject = git(&dir, &["log", "-1", "--pretty=%s"]).unwrap();
+    assert_eq!(String::from_utf8_lossy(&subject.stdout).trim(), "Stage things");
+    for _ in 0..300 {
+        ed.poll_git(false);
+        if !text(&ed).contains("Staged changes") && !ed.git.in_flight() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(!text(&ed).contains("Staged changes"), "{}", text(&ed));
+    // c a prefills the last message; :quit cancels.
+    keys(&mut ed, "c a");
+    assert!(text(&ed).starts_with("Stage things\n"), "{}", text(&ed));
+    keys(&mut ed, "esc : text:quit ret");
+    assert!(ed.float.is_none() && ed.message.as_ref().is_some_and(|m| m.text.contains("cancelled")));
+    keys(&mut ed, "c c");
+    assert!(ed.float.is_none(), "nothing staged: no commit buffer");
+    // :help from the status buffer opens in a new tab on the git section.
+    keys(&mut ed, ": text:help ret");
+    assert_eq!(ed.tabs.len(), 3);
+    let line = ed.buffer().line_of(cursor(&ed));
+    assert_eq!(ed.buffer().line_text(line), "## Git status buffer");
+    std::fs::remove_dir_all(&dir).unwrap();
 }

@@ -10,6 +10,7 @@ mod config;
 mod editor;
 mod files;
 mod frame;
+mod git;
 mod history;
 mod install;
 mod keymap;
@@ -164,9 +165,8 @@ fn load_theme(name: &str, config_dir: Option<&Path>) -> Option<theme::Theme> {
     theme::Theme::builtin(name)
 }
 
-/// The configured font file or family, else a Nerd Font found on the system
-/// (Iosevka preferred), else the embedded Hack. Records the family used on
-/// the editor (for the config template).
+/// The configured font file or family, else the embedded Iosevka. Records
+/// the family used on the editor (for the config template).
 fn load_font(editor: &mut Editor, scale: f64) -> FontSet {
     let config = &editor.config;
     let size = (config.font_size as f64 * scale) as f32;
@@ -177,22 +177,22 @@ fn load_font(editor: &mut Editor, scale: f64) -> FontSet {
         (None, Some(family)) => {
             let found = render::font::find_font_family(family);
             if found.is_none() {
-                eprintln!("quin: font family `{family}` not found, using a Nerd Font or the built-in font");
+                eprintln!("quin: font family `{family}` not found, using the built-in Iosevka");
             }
-            found.or_else(render::font::find_system_nerd_font)
+            found
         }
-        (None, None) => render::font::find_system_nerd_font(),
+        (None, None) => None,
     };
     let (mut font, family) = match found {
         Some((regular, bold)) => match read(&regular).map(|bytes| FontSet::load(bytes, bold.as_ref().and_then(read), size)) {
             Some(Ok(font)) => (font, family_of(&regular)),
             Some(Err(err)) => {
                 eprintln!("quin: cannot load font {}: {err}", regular.display());
-                (FontSet::builtin(size), "Hack".to_string())
+                (FontSet::builtin(size), "Iosevka".to_string())
             }
-            None => (FontSet::builtin(size), "Hack".to_string()),
+            None => (FontSet::builtin(size), "Iosevka".to_string()),
         },
-        None => (FontSet::builtin(size), "Hack".to_string()),
+        None => (FontSet::builtin(size), "Iosevka".to_string()),
     };
     font.ligatures = config.ligatures;
     editor.font_family = family;
@@ -202,6 +202,7 @@ fn load_font(editor: &mut Editor, scale: f64) -> FontSet {
 /// Render once to a PPM file without opening a window (used for testing).
 fn run_headless(editor: &mut Editor, path: &Path, size: (u32, u32), keys: &str) {
     let mut font = load_font(editor, 1.0);
+    editor.poll_git(true);
     let mut pixels = vec![0u32; (size.0 * size.1) as usize];
     // Draw once so that frame sizes are known before keys are replayed.
     {
@@ -246,7 +247,8 @@ fn wait_for_background(editor: &mut Editor) {
     }
     for _ in 0..200 {
         editor.poll_search();
-        if editor.live_search.as_ref().is_none_or(|s| s.done) {
+        editor.poll_git(false);
+        if editor.live_search.as_ref().is_none_or(|s| s.done) && !editor.git.in_flight() {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -276,6 +278,13 @@ struct App {
     mouse: (i32, i32),
     /// Active mouse drag: the frame and the anchor position.
     drag: Option<(frame::ViewId, usize)>,
+    /// Button held over a terminal application that reports the mouse, and
+    /// the last cell reported to it.
+    term_button: Option<u8>,
+    term_cell: (usize, usize),
+    /// Left button pressed on a terminal that does not report the mouse (and
+    /// where): dragging from there selects text.
+    term_press: Option<(frame::ViewId, (i32, i32))>,
     scale: f64,
     close_requested: bool,
 }
@@ -297,6 +306,9 @@ impl App {
             modifiers: ModifiersState::empty(),
             mouse: (0, 0),
             drag: None,
+            term_button: None,
+            term_cell: (0, 0),
+            term_press: None,
             scale: 1.0,
             close_requested: false,
         }
@@ -332,6 +344,7 @@ impl App {
     /// Things to check after any input: quitting and redrawing.
     fn after_input(&mut self, event_loop: &ActiveEventLoop) {
         self.editor.poll_search();
+        self.editor.poll_git(false);
         if self.editor.font_dirty {
             self.editor.font_dirty = false;
             self.font = load_font(&mut self.editor, self.scale);
@@ -346,9 +359,55 @@ impl App {
         self.editor.frame_rects.iter().copied().find(|(_, r)| r.contains(x, y))
     }
 
-    fn mouse_press(&mut self) {
+    fn terminal_wants_mouse(&self) -> bool {
+        self.editor.buffer().terminal.as_ref().is_some_and(|t| t.wants_mouse())
+    }
+
+    /// Report a mouse event to the terminal application in the focused frame.
+    fn send_mouse(&mut self, button: u8, released: bool, motion: bool) {
         let (x, y) = self.mouse;
-        if let Some(i) = self.editor.tab_rects.iter().position(|r| r.contains(x, y)) {
+        let focused = self.editor.focused_view();
+        let Some((_, rect)) = self.editor.frame_rects.iter().copied().find(|(id, _)| *id == focused) else { return };
+        let (col, row) = render::ui::terminal_cell_at(&self.font, rect, x, y);
+        let view = self.editor.view_mut();
+        let (col, row) = (col.min(view.cols.saturating_sub(1)), row.min(view.rows.saturating_sub(1)));
+        view.scrolled_back = false;
+        self.term_cell = (col, row);
+        let modifiers = self.modifiers;
+        let event = terminal::MouseEvent {
+            button,
+            col,
+            row,
+            released,
+            motion,
+            shift: modifiers.shift_key(),
+            alt: modifiers.alt_key(),
+            ctrl: modifiers.control_key(),
+        };
+        if let Some(terminal) = &mut self.editor.buffer_mut().terminal {
+            terminal.send_mouse(event);
+        }
+    }
+
+    fn mouse_button(&mut self, button: MouseButton, pressed: bool) {
+        let (x, y) = self.mouse;
+        let code = match button {
+            MouseButton::Left => 0,
+            MouseButton::Middle => 1,
+            MouseButton::Right => 2,
+            _ => return,
+        };
+        if !pressed {
+            self.drag = None;
+            self.term_press = None;
+            if let Some(held) = self.term_button.take() {
+                self.send_mouse(held, true, false);
+            }
+            return;
+        }
+        if code == 0
+            && let Some(i) = self.editor.tab_rects.iter().position(|r| r.contains(x, y))
+        {
             self.editor.tab_goto(i);
             return;
         }
@@ -358,6 +417,17 @@ impl App {
         }
         self.editor.focus_view(view_id);
         if self.editor.mode == Mode::Terminal {
+            // An application that asked for the mouse gets the click; in a
+            // plain shell, dragging from here selects text.
+            if self.terminal_wants_mouse() {
+                self.term_button = Some(code);
+                self.send_mouse(code, false, false);
+            } else if code == 0 {
+                self.term_press = Some((view_id, (x, y)));
+            }
+            return;
+        }
+        if code != 0 {
             return;
         }
         let Some(pos) = render::ui::position_at(&mut self.editor, &self.font, view_id, rect, x, y) else { return };
@@ -366,6 +436,45 @@ impl App {
         let anchor = if extend { view.selection.primary().anchor } else { pos };
         view.selection = Selection::single(Range::new(anchor, pos));
         self.drag = Some((view_id, anchor));
+    }
+
+    /// The pointer moved: extend a drag selection, report motion to a terminal
+    /// application, or turn a drag on a plain terminal into a selection.
+    /// Returns true when something to draw changed.
+    fn mouse_moved(&mut self) -> bool {
+        if self.drag.is_some() {
+            self.mouse_drag();
+            return true;
+        }
+        if self.editor.mode != Mode::Terminal || !matches!(self.editor.overlay, editor::Overlay::None) {
+            return false;
+        }
+        let held = self.term_button;
+        if self.editor.buffer().terminal.as_ref().is_some_and(|t| t.wants_motion(held.is_some())) {
+            let (x, y) = self.mouse;
+            let focused = self.editor.focused_view();
+            if let Some((_, rect)) = self.editor.frame_rects.iter().copied().find(|(id, _)| *id == focused)
+                && render::ui::terminal_cell_at(&self.font, rect, x, y) != self.term_cell
+            {
+                self.send_mouse(held.unwrap_or(3), false, true);
+            }
+            return false;
+        }
+        if let Some((view_id, (px, py))) = self.term_press.take() {
+            let Some((_, rect)) = self.editor.frame_rects.iter().copied().find(|(id, _)| *id == view_id) else { return false };
+            let buffer = self.editor.view().buffer;
+            self.editor.refresh_terminal_text(buffer);
+            self.editor.set_mode(Mode::Normal);
+            let (x, y) = self.mouse;
+            let anchor = render::ui::position_at(&mut self.editor, &self.font, view_id, rect, px, py);
+            let pos = render::ui::position_at(&mut self.editor, &self.font, view_id, rect, x, y);
+            if let (Some(anchor), Some(pos)) = (anchor, pos) {
+                self.editor.views.get_mut(&view_id).expect("view").selection = Selection::single(Range::new(anchor, pos));
+                self.drag = Some((view_id, anchor));
+            }
+            return true;
+        }
+        false
     }
 
     fn mouse_drag(&mut self) {
@@ -395,6 +504,29 @@ impl App {
             return;
         }
         let Some((view_id, _)) = self.frame_at(x, y) else { return };
+        // In terminal mode: an application that asked for the mouse gets wheel
+        // events, a full-screen one without it gets arrow keys, a shell scrolls
+        // its scrollback.
+        if view_id == self.editor.focused_view() && self.editor.mode == Mode::Terminal {
+            let (wants_mouse, alt_screen) = match &self.editor.buffer().terminal {
+                Some(t) => (t.wants_mouse(), t.in_alt_screen()),
+                None => (false, false),
+            };
+            if wants_mouse {
+                let button = if lines > 0 { 64 } else { 65 };
+                for _ in 0..lines.unsigned_abs() {
+                    self.send_mouse(button, false, false);
+                }
+                return;
+            }
+            if alt_screen {
+                let key = Key::code(if lines > 0 { KeyCode::Up } else { KeyCode::Down });
+                for _ in 0..lines.unsigned_abs() {
+                    self.editor.handle_key(key);
+                }
+                return;
+            }
+        }
         let view = self.editor.views.get_mut(&view_id).expect("view");
         let buffer = &self.editor.buffers[&view.buffer];
         let max = buffer.line_count().saturating_sub(1);
@@ -402,6 +534,7 @@ impl App {
         let max = if buffer.is_terminal() { terminal_rows } else { max };
         view.scroll_line = (view.scroll_line as i64 - lines as i64).clamp(0, max as i64) as usize;
         view.anim = None;
+        view.scrolled_back = buffer.is_terminal() && view.scroll_line < max;
     }
 }
 
@@ -425,7 +558,8 @@ impl ApplicationHandler<()> for App {
     /// Background work woke us up: terminal output or search results.
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {
         let terminals = self.editor.process_terminals();
-        if self.editor.poll_search() || terminals {
+        let git = self.editor.poll_git(false);
+        if self.editor.poll_search() || terminals || git {
             self.request_redraw();
         }
     }
@@ -465,18 +599,14 @@ impl ApplicationHandler<()> for App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse = (position.x as i32, position.y as i32);
-                if self.drag.is_some() {
-                    self.mouse_drag();
+                if self.mouse_moved() {
                     self.request_redraw();
                 }
             }
-            WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => match state {
-                ElementState::Pressed => {
-                    self.mouse_press();
-                    self.after_input(event_loop);
-                }
-                ElementState::Released => self.drag = None,
-            },
+            WindowEvent::MouseInput { state, button, .. } => {
+                self.mouse_button(button, state == ElementState::Pressed);
+                self.after_input(event_loop);
+            }
             WindowEvent::MouseWheel { delta, .. } => {
                 let lines = match delta {
                     MouseScrollDelta::LineDelta(_, y) => (y * 3.0).round() as i32,

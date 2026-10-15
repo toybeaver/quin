@@ -28,6 +28,10 @@ pub struct Buffer {
     pub readonly: bool,
     /// The file tree sidebar (`tree.rs`): `:write` applies its edits to disk.
     pub tree: bool,
+    /// The git status buffer (`space l`).
+    pub git: bool,
+    /// A commit message being written (`Some(true)` amends the last commit).
+    pub commit: Option<bool>,
     /// Bumped on every edit; views use it to know when to recompute layout.
     pub version: u64,
     pub indent: IndentStyle,
@@ -51,6 +55,8 @@ impl Buffer {
             terminal: None,
             readonly: false,
             tree: false,
+            git: false,
+            commit: None,
             version: 0,
             indent: DEFAULT_INDENT,
             crlf: false,
@@ -137,6 +143,12 @@ impl Buffer {
         }
         if self.tree {
             return "[tree]".to_string();
+        }
+        if self.git {
+            return "[git]".to_string();
+        }
+        if self.commit.is_some() {
+            return "[commit]".to_string();
         }
         match &self.path {
             Some(path) => relative_to_cwd(path),

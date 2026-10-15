@@ -42,6 +42,11 @@ pub struct View {
     /// the slide towards its new place, if one is running.
     pub cursor_px: Option<(f32, f32)>,
     pub cursor_anim: Option<CursorAnim>,
+    /// A terminal frame the user scrolled up into the scrollback: stop
+    /// following the live screen until a key is sent.
+    pub scrolled_back: bool,
+    /// A preview frame (the git status buffer's split): no edits here.
+    pub readonly: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -72,6 +77,8 @@ impl View {
             anim: None,
             cursor_px: None,
             cursor_anim: None,
+            scrolled_back: false,
+            readonly: false,
         }
     }
 
@@ -186,7 +193,7 @@ pub enum Node {
 }
 
 /// Width of the line drawn between two frames.
-pub const SEPARATOR: i32 = 1;
+pub const SEPARATOR: i32 = 2;
 
 impl Node {
     pub fn leaves(&self) -> Vec<ViewId> {

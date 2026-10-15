@@ -63,9 +63,10 @@ window, with buffers like neovim". Nothing more.
 - The editor is not project bound: the file picker starts from the working
   directory but browses any path typed into it. Global search streams results
   from a background thread; never block the UI on a search.
-- Fonts: prefer a Nerd Font found on the system (Iosevka first), embed only
-  the Nerd Font symbol set as a fallback, support ligatures. Do not bundle
-  multi-megabyte font families.
+- Fonts: Iosevka (Nerd Font Mono build, subset with fonttools to the scripts
+  and symbols the editor needs) and the Nerd Font symbol set are embedded;
+  `font-family`/`font` in the config swap in a system font. Support
+  ligatures. Do not grow the embedded fonts beyond a few megabytes.
 - Pickers that open files (files, buffers, search results) always show a
   preview pane of the highlighted item; the theme picker previews on the
   whole window and rolls back on cancel.
@@ -78,6 +79,18 @@ window, with buffers like neovim". Nothing more.
   oil.nvim: `ret` opens or folds, and `:write` turns text edits into renames,
   creates, moves and deletes (deletes need a second `:write`). Keep it a
   buffer; do not turn it into a widget with its own key handling.
+- Git integration stays small and reads from the `git` binary on a
+  background thread (no libgit2-style crate): branch badge in the status
+  line, file and directory markers in the tree, and a neogit-like status
+  buffer (`space l`, its own tab): `ret` opens files in a reused read-only
+  preview split on the right (coloured against HEAD), `tab` unfolds a file's
+  diff, `s` stages or unstages files and hunks (`git add`,
+  `git restore --staged`, `git apply --cached`), `esc` closes the preview,
+  `c c` / `c a` commit or amend through a floating commit-message frame
+  (`Editor::float`; `:write` commits with `git commit -F -`, `:quit` cancels).
+  `space` stays the leader key everywhere. The git buffer's keys live in
+  `GIT_KEYS` and are tried before the normal keymap.
+- Default font: the embedded Iosevka.
 - `p`/`P` are vim's visual-mode paste: they replace the selection; `p` puts
   the replaced text on the clipboard, `P` does not. `r` replaces the character
   under the cursor; `R` enters replace mode.

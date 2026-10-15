@@ -1375,6 +1375,38 @@ fn tree_toggle(ed: &mut Editor, _ctx: Ctx) {
 fn activate_line(ed: &mut Editor, _ctx: Ctx) {
     if ed.buffer().tree {
         crate::tree::activate(ed);
+    } else if ed.buffer().git {
+        crate::git::activate(ed);
+    }
+}
+
+fn git_status(ed: &mut Editor, _ctx: Ctx) {
+    crate::git::open_status(ed);
+}
+
+fn git_stage(ed: &mut Editor, _ctx: Ctx) {
+    crate::git::stage(ed);
+}
+
+/// `esc` in the git buffer: close the preview split, else the usual escape.
+fn git_close_preview(ed: &mut Editor, ctx: Ctx) {
+    if !crate::git::close_file_view(ed) {
+        normal_mode(ed, ctx);
+    }
+}
+
+fn git_commit(ed: &mut Editor, _ctx: Ctx) {
+    crate::git::open_commit(ed, false);
+}
+
+fn git_commit_amend(ed: &mut Editor, _ctx: Ctx) {
+    crate::git::open_commit(ed, true);
+}
+
+/// `tab` in normal mode: in the git buffer, fold or unfold a file's diff.
+fn toggle_fold(ed: &mut Editor, _ctx: Ctx) {
+    if ed.buffer().git {
+        crate::git::toggle_diff(ed);
     }
 }
 
@@ -1508,7 +1540,13 @@ commands! {
     resize_narrower: "Make the frame narrower",
     resize_reset: "Give every frame of the tab its default size",
     tree_toggle: "Show or hide the file tree sidebar",
-    activate_line: "In the tree: open the file or fold the directory under the cursor",
+    activate_line: "In the tree or git buffer: open the file (or fold the directory) under the cursor",
+    git_status: "Open the git status buffer in its own tab",
+    toggle_fold: "In the git buffer: show or hide the diff of the file under the cursor",
+    git_stage: "Stage the file or hunk under the cursor (unstage it in the staged section)",
+    git_close_preview: "Close the preview split",
+    git_commit: "Commit the staged changes: write the message, then :write",
+    git_commit_amend: "Amend the last commit: edit its message, then :write",
     zoom_in: "Bigger font",
     zoom_out: "Smaller font",
 }

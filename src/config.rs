@@ -9,7 +9,7 @@
 //!
 //! ```toml
 //! font-size    = 14
-//! font-family  = "Iosevka Nerd Font"   # an installed font; default: the first Nerd Font found
+//! font-family  = "JetBrainsMono Nerd Font"  # an installed font; default: the embedded Iosevka
 //! font         = "/path/to/mono.ttf"   # a font file instead of a family (bold-font too)
 //! ligatures    = true
 //! theme        = "dark"                # dark, light, any bundled scheme, or a file in themes/
@@ -155,7 +155,7 @@ impl Config {
         format!(
             "# quin configuration (flat TOML). Edit, save, restart.\n\
              font-size = {}\n\
-             font-family = \"{}\"   # any installed font; Nerd Fonts give icons and ligatures\n\
+             # font-family = \"{}\"   # an installed font; the default is the embedded Iosevka\n\
              theme = \"{}\"   # :theme shows every bundled theme\n\
              \n\
              # ligatures = true\n\
@@ -213,12 +213,12 @@ mod tests {
         assert!(config.relative_line_numbers && !config.ligatures);
         assert!(config.apply_line("nonsense").is_err());
         assert!(config.apply_line("colour = 1").is_err());
-        let template = config.template("Hack");
+        let template = config.template("Iosevka");
         let mut again = Config::default();
         for line in template.lines() {
             again.apply_line(line).unwrap();
         }
-        assert_eq!(again.font_family.as_deref(), Some("Hack"));
+        assert_eq!(again.font_family, None, "the family line is a commented-out example");
         assert_eq!(again.theme, "catppuccin-mocha");
     }
 }

@@ -1,0 +1,13 @@
+# The git status buffer (`space l`): sections, files, unfolded diffs.
+
+name          git-status
+
+match keyword        ^(Head|Root):
+match strong         '^[A-Z][^(]*\(\d+\)$'
+match tree.new       '^[>v] (untracked|new file|copied)\s'
+match tree.modified  '^[>v] (modified|renamed|type changed)\s'
+match diff.remove    '^[>v] (deleted|conflict)\s'
+match diff.hunk      ^\s{4}@@.*$
+match diff.add       ^\s{4}\+.*$
+match diff.remove    ^\s{4}-.*$
+match comment        '^(Nothing changed|Not a git repository)\.$'

@@ -175,6 +175,7 @@ pastes one piece per cursor.
 | `space f` | global search |
 | `space c` | close the frame |
 | `A-e` | show / hide the file tree sidebar |
+| `space l` | git status buffer in its own tab |
 | `space w ...` | window menu (below) |
 
 Inside pickers: type to filter, `up`/`down` or `C-p`/`C-n` to move, `ret` to
@@ -238,20 +239,54 @@ types `á`, `'` then space types `'`.
 
 #### Terminal mode
 
-`:terminal` splits the current frame and runs your shell (`$SHELL`, or
-`shell` in the config) in the new one. A terminal is an ordinary buffer: in
+`:terminal` runs your shell (`$SHELL`, or `shell` in the config) in a new
+buffer shown in the current frame; split first (`space w s`) to keep the file
+next to it. A terminal is an ordinary buffer: in
 terminal mode keys go straight to the shell except `C-esc` (normal mode),
 `C-S-v` (paste the clipboard into the shell) and `C-S-c` (copy the
 selection). In normal mode the screen and scrollback are plain text you can
 move through, search and yank with the usual keys; the view starts at the top
 of the screen, `k` scrolls up into the scrollback. `p` in normal mode types
 the clipboard into the shell. `i` or `a` go back to terminal mode. When the
-shell exits, any key closes the buffer.
+shell exits, its frame closes. TUIs that ask for it (the kitty keyboard
+protocol or xterm's modifyOtherKeys) get modified keys such as Shift+Enter
+and Ctrl+letters in CSI u form.
 
 #### Mouse
 
 Click to place the cursor (shift-click extends), drag to select, wheel to
-scroll, click a tab to switch to it.
+scroll, click a tab to switch to it. In a terminal, applications that ask
+for the mouse (vim, htop, TUIs) get clicks, drags and the wheel; in a plain
+shell the wheel scrolls the scrollback and dragging selects text (the frame
+drops to normal mode with the selection, `i` goes back). A full-screen
+program without mouse support gets the wheel as arrow keys.
+
+#### Git
+
+When the working directory is inside a git repository, the status line shows
+the branch next to the mode, with `*` when there are uncommitted changes.
+The file tree colours modified files orange and new files green, and prefixes
+directories with changes anywhere inside them (including deleted files) with
+`* `. The state is read by running `git` in the background every few seconds
+and after each write.
+
+`space l` opens a status buffer in its own tab, in the spirit of neogit: the
+branch, then untracked, unstaged and staged files in sections, or "Nothing
+changed." on a clean tree. Inside it:
+
+| Key | Action |
+|---|---|
+| `ret` | open the file (at the hunk's line) in a read-only preview split on the right, which the buffer keeps reusing, and move into it |
+| `tab` | fold or unfold the diff of the file under the cursor |
+| `s` | stage the file or the single hunk under the cursor; in the staged section, unstage it |
+| `c c` / `c a` | commit the staged changes / amend the last commit: a commit message opens in a floating frame, prefilled like `git commit` does; `:write` commits, `:quit` (or an empty message) cancels |
+| `esc` | close the preview split |
+
+The preview colours the file against HEAD: new lines green, modified lines
+yellow with the changed part highlighted, and a red marker where lines were
+deleted. `space w l` moves into the preview to scroll or yank from it.
+
+The buffer refreshes as the status changes.
 
 ### Commands (`:`)
 
@@ -262,14 +297,14 @@ scroll, click a tab to switch to it.
 | `quit` / `quit!` | `q` `q!` | close the frame, or quit when it is the last one (`!` discards changes) |
 | `open [path]` | `o` `e` | open a file, or the file picker |
 | `new` | `n` | new scratch buffer |
-| `terminal` | `term` | open a terminal in a frame below |
+| `terminal` | `term` | open a terminal in the current frame |
 | `tree` | | show or hide the file tree sidebar |
 | `theme [name]` | | switch theme; without a name the picker previews each theme on the whole window as you move through it (`esc` goes back) |
 | `language [name]` | `lang` | set the buffer's language (picker without a name) |
 | `reload` | `rl` | reload the file from disk |
 | `cd [dir]` / `pwd` | | working directory |
 | `sh <cmd>` | `!` | run a command, show its output |
-| `help` | | every binding and command, in a buffer |
+| `help` | | every binding and command, in a buffer; from the tree, git or a terminal buffer it opens in a new tab on that section |
 | `config` | | open the configuration file |
 
 Closing the window with unsaved changes asks you to close a second time.
@@ -290,7 +325,7 @@ size, font family and theme. It lives in the OS configuration directory:
 
 ```toml
 font-size    = 14
-font-family  = "Iosevka Nerd Font"   # any installed font; default: the first Nerd Font found
+font-family  = "JetBrainsMono Nerd Font"  # optional; the default is the embedded Iosevka
 font         = "~/fonts/mono.ttf"    # a font file instead of a family; bold-font too
 ligatures    = true
 theme        = "dark"                # dark, light, a bundled scheme, or a file in themes/
@@ -310,15 +345,13 @@ collection that Ghostty ships (`catppuccin-mocha`, `gruvbox-dark`,
 `solarized-light`...): each 16-color terminal palette is turned into a full
 editor theme, and terminals inside quin use that palette as is.
 
-**Fonts.** `font-family` names an installed font by its family name, matched
-against the font file names without spaces or case (`"JetBrainsMono Nerd
-Font"`, `"Iosevka Nerd Font"`). Without it quin looks for a Nerd Font in the
-usual font directories, in this order: Iosevka, Iosevka Term, JetBrains Mono,
-Fira Code, Hack, then any other `*NerdFont*-Regular.ttf`. Install
-[Iosevka Nerd Font](https://www.nerdfonts.com/font-downloads) to get the
-intended look. When none is installed the embedded Hack is used. In every
-case the Nerd Font symbol set is embedded as a fallback, so prompt and file
-icons render. Ligatures (`->`, `!=`, `::`...) come from the font's own rules
+**Fonts.** Iosevka (the Nerd Font Mono build, regular and bold, subset to
+Latin, Greek, Cyrillic, punctuation, box drawing and Powerline) is embedded,
+so the editor looks the same wherever it is installed. `font-family` names
+any installed font by its family name, matched against the font file names
+without spaces or case (`"JetBrainsMono Nerd Font"`); `font` points at a
+font file. The Nerd Font symbol set is embedded as a fallback for every
+font, so prompt and file icons always render. Ligatures (`->`, `!=`, `::`...) come from the font's own rules
 (`ligatures off` disables them).
 
 The same directory can hold:

@@ -128,6 +128,7 @@ const BUILTIN: &[(&str, &str)] = &[
     ("rust", include_str!("../../assets/syntax/rust.syn")),
     ("markdown", include_str!("../../assets/syntax/markdown.syn")),
     ("tree", include_str!("../../assets/syntax/tree.syn")),
+    ("git-status", include_str!("../../assets/syntax/git-status.syn")),
     ("c", include_str!("../../assets/syntax/c.syn")),
     ("cpp", include_str!("../../assets/syntax/cpp.syn")),
     ("python", include_str!("../../assets/syntax/python.syn")),

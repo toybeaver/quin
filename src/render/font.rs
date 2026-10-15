@@ -5,6 +5,9 @@
 //! (`cell_w` wide, `cell_h` tall). A font set has a regular face, an optional
 //! bold face and fallback faces for characters the main font lacks (the
 //! embedded Nerd Font symbols, so prompts and file icons always render).
+//! The embedded default is Iosevka (Nerd Font Mono build, subset to Latin,
+//! Greek, Cyrillic, punctuation, box drawing and Powerline); a `font-family`
+//! or `font` in the config swaps in a system font.
 //! Italic is synthesized by shearing. Bigger text (markdown headings) is simply
 //! rasterized at a larger pixel size.
 //!
@@ -20,8 +23,8 @@ use std::path::{Path, PathBuf};
 
 use unicode_width::UnicodeWidthChar;
 
-pub const REGULAR_TTF: &[u8] = include_bytes!("../../assets/fonts/Hack-Regular.ttf");
-pub const BOLD_TTF: &[u8] = include_bytes!("../../assets/fonts/Hack-Bold.ttf");
+pub const REGULAR_TTF: &[u8] = include_bytes!("../../assets/fonts/Iosevka-Regular.ttf");
+pub const BOLD_TTF: &[u8] = include_bytes!("../../assets/fonts/Iosevka-Bold.ttf");
 const SYMBOLS_TTF: &[u8] = include_bytes!("../../assets/fonts/SymbolsNerdFontMono-Regular.ttf");
 
 /// Characters that may take part in a ligature. Letters and digits never do
@@ -122,7 +125,7 @@ impl FontSet {
         Ok(set)
     }
 
-    /// The embedded Hack font.
+    /// The embedded Iosevka font.
     pub fn builtin(size: f32) -> FontSet {
         FontSet::load(REGULAR_TTF.to_vec(), Some(BOLD_TTF.to_vec()), size).expect("built-in font is valid")
     }
@@ -295,11 +298,6 @@ fn font_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-/// Nerd Font families to look for, best first. The file names Nerd Fonts
-/// ship are `<Family>NerdFont[Mono|Propo]-<Weight>.ttf`.
-const PREFERRED_FAMILIES: &[&str] =
-    &["IosevkaNerdFont", "IosevkaTermNerdFont", "JetBrainsMonoNerdFont", "FiraCodeNerdFont", "HackNerdFont"];
-
 /// Find a font family by name on the system: (regular file, bold file if any).
 /// Names are compared without spaces or case, so `"JetBrainsMono Nerd Font"`
 /// finds `JetBrainsMonoNerdFont-Regular.ttf`.
@@ -321,33 +319,6 @@ pub fn find_font_family(family: &str) -> Option<(PathBuf, Option<PathBuf>)> {
 
 fn normalize(name: &str) -> String {
     name.chars().filter(|c| !c.is_whitespace() && *c != '_').flat_map(char::to_lowercase).collect()
-}
-
-/// Find a Nerd Font on the system: (regular file, bold file if any).
-pub fn find_system_nerd_font() -> Option<(PathBuf, Option<PathBuf>)> {
-    let mut files: Vec<PathBuf> = Vec::new();
-    for dir in font_dirs() {
-        collect_font_files(&dir, &mut files, 0);
-    }
-    let stem = |p: &Path| p.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
-    let mut families: Vec<&str> = PREFERRED_FAMILIES.to_vec();
-    // Any other Nerd Font is better than none.
-    let others: Vec<String> = files
-        .iter()
-        .map(|p| stem(p))
-        .filter(|s| s.contains("NerdFont") && s.ends_with("-Regular"))
-        .map(|s| s.trim_end_matches("-Regular").trim_end_matches("Mono").trim_end_matches("Propo").to_string())
-        .collect();
-    families.extend(others.iter().map(|s| s.as_str()));
-    for family in families {
-        let regular_name = |s: &str| s == format!("{family}-Regular") || s == format!("{family}Mono-Regular");
-        let bold_name = |s: &str| s == format!("{family}-Bold") || s == format!("{family}Mono-Bold");
-        if let Some(regular) = files.iter().find(|p| regular_name(&stem(p))) {
-            let bold = files.iter().find(|p| bold_name(&stem(p))).cloned();
-            return Some((regular.clone(), bold));
-        }
-    }
-    None
 }
 
 fn collect_font_files(dir: &Path, out: &mut Vec<PathBuf>, depth: usize) {
@@ -392,9 +363,13 @@ mod tests {
     }
 
     #[test]
-    fn hack_has_no_ligatures_so_shaping_is_skipped() {
-        let font = FontSet::builtin(14.0);
-        assert!(font.shape("->", false).is_none());
-        assert!(font.shape("x", false).is_none());
+    fn iosevka_shapes_ligatures() {
+        let mut font = FontSet::builtin(14.0);
+        let shaped = font.shape("->", false).expect("Iosevka ligates ->");
+        assert_eq!(shaped.iter().map(|g| g.chars).sum::<usize>(), 2, "the ligature covers both characters");
+        assert!(font.shape("x", false).is_none(), "single characters are not shaped");
+        assert!(font.glyph('é', false, 1.0).mask.iter().any(|&c| c > 0));
+        assert!(font.glyph('│', false, 1.0).mask.iter().any(|&c| c > 0), "box drawing survived the subset");
+        assert!(font.glyph('\u{e0a0}', false, 1.0).mask.iter().any(|&c| c > 0), "powerline too");
     }
 }

@@ -2,8 +2,9 @@
 
 use std::process::{Command as Process, Stdio};
 
+use crate::commands;
 use crate::editor::{Editor, Mode};
-use crate::frame::Dir;
+use crate::keymap::Keymap;
 use crate::overlays;
 use crate::picker::PromptKind;
 
@@ -49,6 +50,9 @@ fn write(ed: &mut Editor, args: &[String]) -> Result<(), String> {
     if ed.buffer().tree {
         return crate::tree::write(ed);
     }
+    if let Some(amend) = ed.buffer().commit {
+        return crate::git::commit_from_buffer(ed, amend);
+    }
     let path = args.first().map(|p| crate::files::expand_home(p));
     let path = path.as_deref();
     let buffer = ed.buffer_mut();
@@ -63,6 +67,7 @@ fn write(ed: &mut Editor, args: &[String]) -> Result<(), String> {
         }
     }
     ed.set_message(format!("{name}: wrote {lines} lines, {bytes} bytes"));
+    ed.poll_git(true);
     Ok(())
 }
 
@@ -72,6 +77,10 @@ fn modified_buffers(ed: &Editor) -> Vec<String> {
 
 /// Close the frame, or quit when it is the last one.
 fn quit(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
+    if ed.buffer().commit.is_some() {
+        crate::git::cancel_commit(ed);
+        return Ok(());
+    }
     let focused = ed.focused_view();
     if ed.root().leaves().len() > 1 || ed.tabs.len() > 1 {
         ed.close_view(focused);
@@ -86,6 +95,10 @@ fn quit(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
 }
 
 fn quit_force(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
+    if ed.buffer().commit.is_some() {
+        crate::git::cancel_commit(ed);
+        return Ok(());
+    }
     let focused = ed.focused_view();
     if ed.root().leaves().len() > 1 || ed.tabs.len() > 1 {
         ed.close_view(focused);
@@ -97,7 +110,10 @@ fn quit_force(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
 
 fn write_quit(ed: &mut Editor, args: &[String]) -> Result<(), String> {
     write(ed, args)?;
-    quit(ed, &[])
+    if ed.float.is_none() && ed.buffer().commit.is_none() {
+        quit(ed, &[])?;
+    }
+    Ok(())
 }
 
 fn open(ed: &mut Editor, args: &[String]) -> Result<(), String> {
@@ -129,9 +145,10 @@ fn tree(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
 }
 
 /// Open a shell in a new frame below the current one.
+/// Open a shell in the current frame, like any other buffer.
 fn terminal(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
     let id = ed.new_terminal_buffer()?;
-    ed.split(Dir::Vertical, Some(id));
+    ed.show_buffer(id);
     ed.set_mode(Mode::Terminal);
     Ok(())
 }
@@ -254,12 +271,37 @@ fn sh(ed: &mut Editor, args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+const HELP_TREE: &str = "\
+The file tree (`A-e`, `:tree`) is a buffer: `ret` opens a file or folds a
+directory, and editing the text then `:write` renames, creates (a trailing `/`
+makes a directory), moves and deletes entries; deletes need a second `:write`.
+Git marks: changed files orange, new files green, `* ` before directories
+with changes inside.
+
+";
+
+const HELP_GIT: &str = "\
+The git status buffer (`space l`) lists untracked, unstaged and staged files.
+`ret` opens the file in a read-only preview split on the right, coloured
+against HEAD; `tab` unfolds its diff; `s` stages the file or hunk under the
+cursor (or unstages it in the staged section); `c c` / `c a` open a floating
+commit message: `:write` commits, `:quit` cancels.
+
+";
+
+/// `:help`: every binding and command in a buffer. From a special buffer
+/// (tree, git, terminal) it opens in a new tab on that buffer's section.
 fn help(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
     let mut text = String::from("# quin keybindings\n\n");
-    let maps =
-        [("Normal mode", &ed.keymaps.normal), ("Insert and replace mode", &ed.keymaps.insert), ("Terminal mode", &ed.keymaps.terminal)];
-    for (title, map) in maps {
-        text.push_str(&format!("## {title}\n\n"));
+    let maps = [
+        ("Normal mode", &ed.keymaps.normal, ""),
+        ("Insert and replace mode", &ed.keymaps.insert, ""),
+        ("Terminal mode", &ed.keymaps.terminal, ""),
+        ("File tree", &Keymap::default(), HELP_TREE),
+        ("Git status buffer", &ed.keymaps.git, HELP_GIT),
+    ];
+    for (title, map, intro) in maps {
+        text.push_str(&format!("## {title}\n\n{intro}"));
         let mut bindings = map.bindings();
         bindings.sort_by(|a, b| a.1.name.cmp(b.1.name).then(a.0.cmp(&b.0)));
         for (keys, cmd) in bindings {
@@ -272,12 +314,33 @@ fn help(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
         let aliases = if cmd.aliases.is_empty() { String::new() } else { format!(" ({})", cmd.aliases.join(", ")) };
         text.push_str(&format!("{:<24} {}{aliases}\n", cmd.name, cmd.doc));
     }
+    let current = ed.buffer();
+    let section = if current.tree {
+        Some("## File tree")
+    } else if current.git || current.commit.is_some() {
+        Some("## Git status buffer")
+    } else if current.is_terminal() {
+        Some("## Terminal mode")
+    } else {
+        None
+    };
     let id = ed.new_scratch_buffer();
     let buffer = ed.buffers.get_mut(&id).expect("new buffer");
     buffer.set_text(&text);
     buffer.set_language(ed.registry.find("markdown"));
     buffer.readonly = true;
-    ed.show_buffer(id);
+    match section {
+        Some(heading) => {
+            ed.tab_new(Some(id));
+            if let Some(line) = text.lines().position(|l| l == heading) {
+                commands::goto_line_number(ed, line, false);
+                let view = ed.view_mut();
+                view.scroll_line = line;
+                view.anim = None;
+            }
+        }
+        None => ed.show_buffer(id),
+    }
     Ok(())
 }
 
@@ -309,7 +372,7 @@ typed_commands! {
     "quit!", ["q!"], "Close the frame or quit, discarding changes", false => quit_force;
     "open", ["o", "e"], "Open a file (<path>), or the file picker", false => open;
     "new", ["n"], "New scratch buffer", false => new_buffer;
-    "terminal", ["term"], "Open a terminal in a frame below", false => terminal;
+    "terminal", ["term"], "Open a terminal in this frame", false => terminal;
     "tree", [], "Show or hide the file tree sidebar", false => tree;
     "theme", [], "Switch theme (<name>, or pick one)", false => theme;
     "language", ["lang"], "Set the buffer's language (<name>, or pick one)", false => language;

@@ -230,6 +230,8 @@ pub struct Keymaps {
     pub select: Keymap,
     pub insert: Keymap,
     pub terminal: Keymap,
+    /// Extra bindings while the git status buffer is focused (tried first).
+    pub git: Keymap,
 }
 
 impl Keymaps {
@@ -247,6 +249,7 @@ impl Keymaps {
             select,
             insert: Keymap::from_table("insert", INSERT_KEYS, &[]),
             terminal: Keymap::from_table("terminal", TERMINAL_KEYS, &[]),
+            git: Keymap::from_table("git", GIT_KEYS, &[("c", "commit")]),
         }
     }
 }
@@ -339,7 +342,9 @@ pub const NORMAL_KEYS: &[(&str, &str)] = &[
     ("space f", "global_search"),
     ("space c", "window_close"),
     ("A-e", "tree_toggle"),
+    ("space l", "git_status"),
     ("ret", "activate_line"),
+    ("tab", "toggle_fold"),
     ("C-=", "zoom_in"),
     ("C-+", "zoom_in"),
     ("C--", "zoom_out"),
@@ -387,6 +392,16 @@ pub const INSERT_KEYS: &[(&str, &str)] = &[
     ("C-=", "zoom_in"),
     ("C-+", "zoom_in"),
     ("C--", "zoom_out"),
+];
+
+/// Bindings of the git status buffer (`space l`), on top of normal mode.
+pub const GIT_KEYS: &[(&str, &str)] = &[
+    ("ret", "activate_line"),
+    ("tab", "toggle_fold"),
+    ("s", "git_stage"),
+    ("esc", "git_close_preview"),
+    ("c c", "git_commit"),
+    ("c a", "git_commit_amend"),
 ];
 
 /// Keys intercepted while a terminal buffer is in terminal mode. Everything

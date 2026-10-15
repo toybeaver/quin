@@ -26,7 +26,7 @@ pub struct Tree {
     expanded: HashSet<PathBuf>,
     /// What the buffer showed when it was last rendered: the baseline that
     /// edits are compared against.
-    entries: Vec<Entry>,
+    pub entries: Vec<Entry>,
     /// The frame files open in (the one focused before the tree).
     pub return_view: Option<ViewId>,
     /// Deletions shown on the last `:write`, applied by the next one.
@@ -84,9 +84,14 @@ pub fn render(ed: &mut Editor) {
     }
     let mut entries = Vec::new();
     collect(&tree.root, 0, &tree.expanded, &mut entries);
+    let git = ed.git.state.as_ref();
     let mut text = String::new();
     for entry in &entries {
         text.push_str(&"  ".repeat(entry.depth));
+        // Directories with a change somewhere inside carry a `* ` marker.
+        if entry.is_dir && git.is_some_and(|g| g.dir_changed(&entry.path)) {
+            text.push_str("* ");
+        }
         text.push_str(&file_name(&entry.path));
         if entry.is_dir {
             text.push('/');
@@ -194,6 +199,7 @@ fn parse(root: &Path, text: &str) -> Result<Vec<Entry>, String> {
         let indent = raw.len() - raw.trim_start().len();
         let depth = indent / 2;
         let name = raw.trim();
+        let name = name.strip_prefix("* ").unwrap_or(name); // the git marker is not part of the name
         let is_dir = name.ends_with('/');
         let name = name.trim_end_matches('/');
         if name.is_empty() || name == "." || name == ".." || name.contains('/') || name.contains('\\') {
@@ -385,7 +391,8 @@ mod tests {
 
     #[test]
     fn parses_indented_names() {
-        let entries = parse(Path::new("/r"), "src/\n  main.rs\n  ui/\n    draw.rs\nREADME.md\n").unwrap();
+        let entries = parse(Path::new("/r"), "* src/\n  main.rs\n  ui/\n    draw.rs\nREADME.md\n").unwrap();
+        assert_eq!(entries[0], entry("/r/src", true, 0), "the git marker is dropped");
         assert_eq!(entries[1], entry("/r/src/main.rs", false, 1));
         assert_eq!(entries[3], entry("/r/src/ui/draw.rs", false, 2));
         assert_eq!(entries[4], entry("/r/README.md", false, 0));

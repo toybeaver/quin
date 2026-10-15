@@ -3,6 +3,7 @@
 name          tree
 indent        2 spaces
 
-match directory    ^\s*[^/]+/$
+# A `* ` marker in front of a directory means git sees changes inside it.
+match tree.modified  '^\s*(\* )?([^/]+/)$'   2:directory
 match tree.hidden  ^\s*\.[^/]*$
 match tree.hidden  ^\s*\.[^/]*/$

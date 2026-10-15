@@ -157,7 +157,11 @@ impl Terminal {
     }
 
     pub fn send_key(&mut self, key: Key) {
-        if let Some(bytes) = encode_key(key, self.screen.app_cursor_keys) {
+        let encoding = KeyEncoding {
+            app_cursor_keys: self.screen.app_cursor_keys,
+            csi_u: self.screen.kitty_flags() & 1 != 0 || self.screen.modify_other_keys,
+        };
+        if let Some(bytes) = encode_key(key, encoding) {
             self.write(&bytes);
         }
     }
@@ -188,6 +192,29 @@ impl Terminal {
 
     pub fn exited(&self) -> bool {
         self.exited
+    }
+
+    /// The application asked for mouse clicks (`?1000h` and friends).
+    pub fn wants_mouse(&self) -> bool {
+        self.screen.mouse_mode != 0
+    }
+
+    /// The application wants to hear the mouse move: always (`?1003h`), or
+    /// while a button is held (`?1002h`).
+    pub fn wants_motion(&self, button_held: bool) -> bool {
+        self.screen.mouse_mode == 1003 || (self.screen.mouse_mode == 1002 && button_held)
+    }
+
+    /// A full-screen application (vim, less...) is running.
+    pub fn in_alt_screen(&self) -> bool {
+        self.screen.in_alt_screen()
+    }
+
+    pub fn send_mouse(&mut self, event: MouseEvent) {
+        if self.screen.mouse_mode != 0 {
+            let bytes = encode_mouse(event, self.screen.mouse_sgr);
+            self.write(&bytes);
+        }
     }
 
     pub fn title(&self) -> &str {
@@ -267,10 +294,68 @@ fn default_shell() -> String {
 // Key encoding
 // ---------------------------------------------------------------------------
 
+/// A mouse event to report to the application, in cells.
+#[derive(Debug, Clone, Copy)]
+pub struct MouseEvent {
+    /// 0 left, 1 middle, 2 right, 64 wheel up, 65 wheel down; 3 = no button (motion).
+    pub button: u8,
+    pub col: usize,
+    pub row: usize,
+    /// Release of the button (false for presses, wheel and motion).
+    pub released: bool,
+    pub motion: bool,
+    pub shift: bool,
+    pub alt: bool,
+    pub ctrl: bool,
+}
+
+/// xterm mouse reporting: SGR form (`CSI < code ; col ; row M`) when the
+/// application enabled it (`?1006h`), else the old three-byte X10 form.
+fn encode_mouse(event: MouseEvent, sgr: bool) -> Vec<u8> {
+    let code = event.button
+        + if event.motion { 32 } else { 0 }
+        + if event.shift { 4 } else { 0 }
+        + if event.alt { 8 } else { 0 }
+        + if event.ctrl { 16 } else { 0 };
+    if sgr {
+        let kind = if event.released { 'm' } else { 'M' };
+        format!("\x1b[<{code};{};{}{kind}", event.col + 1, event.row + 1).into_bytes()
+    } else {
+        let code = if event.released { 3 } else { code };
+        let coord = |v: usize| (32 + v as u32 + 1).min(255) as u8;
+        vec![0x1b, b'[', b'M', 32 + code, coord(event.col), coord(event.row)]
+    }
+}
+
+/// How the application asked keys to be encoded.
+#[derive(Debug, Clone, Copy, Default)]
+struct KeyEncoding {
+    app_cursor_keys: bool,
+    /// The kitty keyboard protocol's "disambiguate" level (or xterm's
+    /// modifyOtherKeys): modified keys that have no legacy encoding, such as
+    /// Shift+Enter, go out as `CSI code;modifiers u`.
+    csi_u: bool,
+}
+
 /// Bytes a terminal sends for `key`, following xterm conventions.
-fn encode_key(key: Key, app_cursor_keys: bool) -> Option<Vec<u8>> {
-    // Modifier parameter used by xterm: 1 + shift(1) + alt(2) + ctrl(4).
-    let modifier = 1 + (key.shift as u8) + (key.alt as u8) * 2 + (key.ctrl as u8) * 4;
+fn encode_key(key: Key, encoding: KeyEncoding) -> Option<Vec<u8>> {
+    // Modifier parameter used by xterm: 1 + shift(1) + alt(2) + ctrl(4) + super(8).
+    let modifier = 1 + (key.shift as u8) + (key.alt as u8) * 2 + (key.ctrl as u8) * 4 + (key.meta as u8) * 8;
+    let app_cursor_keys = encoding.app_cursor_keys;
+    if encoding.csi_u {
+        // Keys the legacy encoding cannot tell apart from something else.
+        let code = match key.code {
+            KeyCode::Enter if modifier > 1 => Some(13),
+            KeyCode::Tab if modifier > 2 => Some(9),
+            KeyCode::Backspace if modifier > 1 => Some(127),
+            KeyCode::Escape if modifier > 1 => Some(27),
+            KeyCode::Char(c) if key.ctrl || key.alt || key.meta => Some(c.to_lowercase().next().unwrap_or(c) as u32),
+            _ => None,
+        };
+        if let Some(code) = code {
+            return Some(format!("\x1b[{code};{modifier}u").into_bytes());
+        }
+    }
     // Alt is sent as an ESC prefix for everything except the keys that encode
     // their modifiers as a parameter (arrows, function keys...).
     let alt_prefix = |mut bytes: Vec<u8>| -> Vec<u8> {
@@ -423,6 +508,14 @@ struct Screen {
     /// ESC ( 0 selected the DEC line-drawing charset.
     graphics_charset: bool,
     app_cursor_keys: bool,
+    /// Kitty keyboard protocol flag stack (`CSI > flags u` pushes, `CSI < u` pops).
+    kitty_stack: Vec<u16>,
+    /// xterm's `CSI > 4 ; 2 m`.
+    modify_other_keys: bool,
+    /// Mouse reporting: 0 off, 1000 clicks, 1002 clicks and drags, 1003 all motion.
+    mouse_mode: u16,
+    /// `?1006h`: report in the SGR form.
+    mouse_sgr: bool,
     autowrap: bool,
     cursor_visible: bool,
     bracketed_paste: bool,
@@ -432,6 +525,11 @@ struct Screen {
 }
 
 impl Screen {
+    /// Kitty keyboard protocol flags in effect.
+    fn kitty_flags(&self) -> u16 {
+        self.kitty_stack.last().copied().unwrap_or(0)
+    }
+
     fn new(cols: u16, rows: u16) -> Screen {
         let cols = cols.max(1) as usize;
         let rows = rows.max(1) as usize;
@@ -448,6 +546,10 @@ impl Screen {
             scroll_bottom: rows - 1,
             graphics_charset: false,
             app_cursor_keys: false,
+            kitty_stack: Vec::new(),
+            modify_other_keys: false,
+            mouse_mode: 0,
+            mouse_sgr: false,
             autowrap: true,
             cursor_visible: true,
             bracketed_paste: false,
@@ -724,6 +826,8 @@ impl Screen {
         match mode {
             1 => self.app_cursor_keys = on,
             7 => self.autowrap = on,
+            1000 | 1002 | 1003 => self.mouse_mode = if on { mode } else { 0 },
+            1006 => self.mouse_sgr = on,
             25 => self.cursor_visible = on,
             47 | 1047 => {
                 if on {
@@ -837,6 +941,9 @@ impl Screen {
     }
 }
 
+/// Kitty keyboard protocol levels we implement: 1 = disambiguate escape codes.
+const KITTY_SUPPORTED: u16 = 1;
+
 /// Parse the tail of a `38;...` / `48;...` SGR: `5;n` or `2;r;g;b`. Returns the
 /// color and how many values were consumed.
 fn extended_color(values: &[u16]) -> (Option<TermColor>, usize) {
@@ -899,8 +1006,47 @@ impl vte::Perform for Screen {
     }
 
     fn csi_dispatch(&mut self, params: &vte::Params, intermediates: &[u8], _ignore: bool, action: char) {
-        let private = intermediates.first() == Some(&b'?');
         let n = param(params, 0, 1) as usize;
+        // Sequences with a private marker (`?`, `>`, `<`, `=`) mean something
+        // else entirely; they must never reach the plain handlers below.
+        match (action, intermediates.first()) {
+            ('m', Some(b'>')) => {
+                // modifyOtherKeys: `CSI > 4 ; 2 m` enables it, `CSI > 4 m` resets it.
+                if param(params, 0, 0) == 4 {
+                    self.modify_other_keys = param(params, 1, 0) >= 1;
+                }
+                return;
+            }
+            ('u', Some(b'?')) => {
+                // Kitty keyboard protocol query: report what is active.
+                self.responses.extend(format!("\x1b[?{}u", self.kitty_flags()).into_bytes());
+                return;
+            }
+            ('u', Some(b'>')) => {
+                self.kitty_stack.push(param(params, 0, 0) & KITTY_SUPPORTED);
+                return;
+            }
+            ('u', Some(b'<')) => {
+                let count = param(params, 0, 1).max(1) as usize;
+                let keep = self.kitty_stack.len().saturating_sub(count);
+                self.kitty_stack.truncate(keep);
+                return;
+            }
+            ('u', Some(b'=')) => {
+                let flags = param(params, 0, 0) & KITTY_SUPPORTED;
+                let current = self.kitty_stack.pop().unwrap_or(0);
+                let new = match param(params, 1, 1) {
+                    2 => current | flags,
+                    3 => current & !flags,
+                    _ => flags,
+                };
+                self.kitty_stack.push(new);
+                return;
+            }
+            (_, Some(marker)) if *marker != b'?' => return, // other `>` `<` `=` sequences: queries we do not answer
+            _ => {}
+        }
+        let private = intermediates.first() == Some(&b'?');
         match (action, private) {
             ('A', _) => self.move_by(-(n as isize), 0),
             ('B', _) | ('e', _) => self.move_by(n as isize, 0),
@@ -1033,6 +1179,47 @@ mod tests {
     }
 
     #[test]
+    fn mouse_modes_and_encoding() {
+        let mut s = screen(10, 2, "\x1b[?1002h\x1b[?1006h");
+        assert_eq!((s.mouse_mode, s.mouse_sgr), (1002, true));
+        let click = MouseEvent { button: 0, col: 4, row: 1, released: false, motion: false, shift: false, alt: false, ctrl: false };
+        assert_eq!(encode_mouse(click, true), b"\x1b[<0;5;2M");
+        assert_eq!(encode_mouse(MouseEvent { released: true, ..click }, true), b"\x1b[<0;5;2m");
+        assert_eq!(encode_mouse(MouseEvent { button: 65, ctrl: true, ..click }, true), b"\x1b[<81;5;2M");
+        assert_eq!(encode_mouse(MouseEvent { motion: true, ..click }, true), b"\x1b[<32;5;2M");
+        assert_eq!(encode_mouse(click, false), b"\x1b[M\x20\x25\x22");
+        feed(&mut s, "\x1b[?1002l");
+        assert_eq!(s.mouse_mode, 0);
+    }
+
+    #[test]
+    fn private_csi_sequences_do_not_leak_into_sgr() {
+        let mut s = screen(20, 2, "\x1b[>4m\x1b[>0q\x1b[?u\x1b[<u\x1b[>4;2mplain");
+        assert!(!s.row(0)[0].underline && !s.row(0)[0].bold, "modifyOtherKeys is not an SGR");
+        assert_eq!(s.responses, b"\x1b[?0u", "the kitty query is answered with the flags in effect");
+        assert!(s.modify_other_keys);
+        s.responses.clear();
+        feed(&mut s, "\x1b[>1u\x1b[?u");
+        assert_eq!(s.kitty_flags(), 1);
+        assert_eq!(s.responses, b"\x1b[?1u");
+        feed(&mut s, "\x1b[<u");
+        assert_eq!(s.kitty_flags(), 0);
+    }
+
+    #[test]
+    fn shift_enter_is_only_special_when_asked_for() {
+        let shift_enter = Key { shift: true, ..Key::code(KeyCode::Enter) };
+        let plain = KeyEncoding::default();
+        let csi_u = KeyEncoding { csi_u: true, ..plain };
+        assert_eq!(encode_key(shift_enter, plain).unwrap(), b"\r");
+        assert_eq!(encode_key(shift_enter, csi_u).unwrap(), b"\x1b[13;2u");
+        assert_eq!(encode_key(Key::code(KeyCode::Enter), csi_u).unwrap(), b"\r", "a plain enter stays a plain enter");
+        assert_eq!(encode_key(Key::char('c').ctrl(), csi_u).unwrap(), b"\x1b[99;5u");
+        assert_eq!(encode_key(Key::char('c').ctrl(), plain).unwrap(), b"\x03");
+        assert_eq!(encode_key(Key::char('A'), csi_u).unwrap(), b"A", "shifted text is still text");
+    }
+
+    #[test]
     fn sgr_colors_and_attributes() {
         let s = screen(20, 2, "\x1b[1;31mred\x1b[0m \x1b[38;5;200mx\x1b[48;2;1;2;3my\x1b[38:2:9:8:7mz");
         let row = s.row(0);
@@ -1159,14 +1346,15 @@ mod tests {
 
     #[test]
     fn key_encoding() {
-        let enc = |k: Key| encode_key(k, false).unwrap();
+        let enc = |k: Key| encode_key(k, KeyEncoding::default()).unwrap();
         assert_eq!(enc(Key::char('a')), b"a");
         assert_eq!(enc(Key::char('a').ctrl()), vec![1]);
         assert_eq!(enc(Key::char('x').alt()), b"\x1bx");
         assert_eq!(enc(Key::code(KeyCode::Enter)), b"\r");
         assert_eq!(enc(Key::code(KeyCode::Backspace)), b"\x7f");
         assert_eq!(enc(Key::code(KeyCode::Up)), b"\x1b[A");
-        assert_eq!(encode_key(Key::code(KeyCode::Up), true).unwrap(), b"\x1bOA");
+        let app = KeyEncoding { app_cursor_keys: true, ..KeyEncoding::default() };
+        assert_eq!(encode_key(Key::code(KeyCode::Up), app).unwrap(), b"\x1bOA");
         assert_eq!(enc(Key::code(KeyCode::Right).ctrl()), b"\x1b[1;5C");
         assert_eq!(enc(Key::code(KeyCode::Delete)), b"\x1b[3~");
         assert_eq!(enc(Key::code(KeyCode::Delete).alt()), b"\x1b[3;3~");
