@@ -37,7 +37,7 @@ use std::sync::{Arc, Mutex};
 
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
@@ -293,6 +293,11 @@ fn wait_for_background(editor: &mut Editor) {
 // Window
 // ---------------------------------------------------------------------------
 
+/// Animations (scroll and cursor slides) draw at most one frame this often.
+/// Without a limit they would redraw as fast as the CPU allows, flooding the
+/// compositor and starving input.
+const FRAME_INTERVAL: std::time::Duration = std::time::Duration::from_millis(16);
+
 fn run_window(editor: Editor) {
     let event_loop = EventLoop::<()>::with_user_event().build().expect("create event loop");
     event_loop.set_control_flow(ControlFlow::Wait);
@@ -321,6 +326,14 @@ struct App {
     term_press: Option<(frame::ViewId, (i32, i32))>,
     scale: f64,
     close_requested: bool,
+    /// When the next paced frame is due: an animation runs, or background
+    /// work (terminal output, search results) changed something.
+    next_frame: Option<std::time::Instant>,
+    /// When the last frame started.
+    last_frame: std::time::Instant,
+    /// What was last given to the window, to skip calls that change nothing.
+    title: String,
+    surface_size: (u32, u32),
 }
 
 impl App {
@@ -345,6 +358,10 @@ impl App {
             term_press: None,
             scale: 1.0,
             close_requested: false,
+            next_frame: None,
+            last_frame: std::time::Instant::now(),
+            title: String::new(),
+            surface_size: (0, 0),
         }
     }
 
@@ -352,26 +369,45 @@ impl App {
         let (Some(window), Some(surface)) = (&self.window, &mut self.surface) else { return };
         let size = window.inner_size();
         let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else { return };
-        if surface.resize(w, h).is_err() {
-            return;
+        if self.surface_size != (size.width, size.height) {
+            if surface.resize(w, h).is_err() {
+                return;
+            }
+            self.surface_size = (size.width, size.height);
         }
+        let started = std::time::Instant::now();
+        self.last_frame = started;
         let Ok(mut buffer) = surface.buffer_mut() else { return };
         {
             let painter = Painter::new(&mut buffer, size.width as usize, size.height as usize);
             let mut ui = Ui { painter, font: &mut self.font };
             render::ui::draw(&mut self.editor, &mut ui);
         }
+        // Lets Wayland pace the next frame to the display.
+        window.pre_present_notify();
         let _ = buffer.present();
         let title = format!("{} - quin", self.editor.buffer().display_name());
-        window.set_title(&title);
-        if self.editor.is_animating() {
-            window.request_redraw();
+        if title != self.title {
+            window.set_title(&title);
+            self.title = title;
         }
+        self.next_frame = self.editor.is_animating().then(|| started + FRAME_INTERVAL);
     }
 
     fn request_redraw(&self) {
         if let Some(window) = &self.window {
             window.request_redraw();
+        }
+    }
+
+    /// Redraw for background work, at most once per `FRAME_INTERVAL`: a shell
+    /// printing without pause must not take every cycle away from input.
+    fn request_frame(&mut self) {
+        let due = self.last_frame + FRAME_INTERVAL;
+        if std::time::Instant::now() >= due {
+            self.request_redraw();
+        } else {
+            self.next_frame = Some(self.next_frame.map_or(due, |at| at.min(due)));
         }
     }
 
@@ -573,6 +609,22 @@ impl App {
 }
 
 impl ApplicationHandler<()> for App {
+    /// The animation timer ran out: draw the next frame.
+    fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
+        if let StartCause::ResumeTimeReached { .. } = cause {
+            self.next_frame = None;
+            self.request_redraw();
+        }
+    }
+
+    /// Sleep until input arrives, or until the next animation frame is due.
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        match self.next_frame {
+            Some(at) => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
+            None => event_loop.set_control_flow(ControlFlow::Wait),
+        }
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -596,7 +648,7 @@ impl ApplicationHandler<()> for App {
         // A running pull or push ticks the window so its spinner keeps turning.
         let spinning = self.editor.git.remote.is_some();
         if self.editor.poll_search() || terminals || git || spinning {
-            self.request_redraw();
+            self.request_frame();
         }
     }
 

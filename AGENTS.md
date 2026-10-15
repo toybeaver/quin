@@ -76,6 +76,11 @@ window, with buffers like neovim". Nothing more.
 - Scrolling and the cursor animate (`View::scroll_to`, `View::cursor_position`);
   keep animations short, cheap and configurable, and never let them block
   input.
+- Only input redraws at once. Animation frames and redraws for background
+  work (terminal output, search results, git) are paced to one per
+  `FRAME_INTERVAL` (`main.rs`). Never request a redraw in a loop. Work done
+  on every frame must stay bounded by what is on screen (see
+  `matching_bracket_within`).
 - The file tree (`A-e`, `:tree`) is a sidebar buffer in the spirit of
   oil.nvim: `ret` opens or folds, and `:write` turns text edits into renames,
   creates, moves and deletes (deletes need a second `:write`). Keep it a
@@ -106,8 +111,12 @@ window, with buffers like neovim". Nothing more.
   puts the replaced text on the clipboard, `P` does not. `r` replaces the
   character under the cursor; `R` enters replace mode.
 - Syntax files may also say how to *render* a token (bigger headings,
-  concealed markers, replaced bullets, embedded languages), which is how
-  Markdown gets a light "rendered" look like Emacs' markdown-mode.
+  concealed markers, replaced bullets, embedded languages) or a block of
+  lines (`bar=`, `center`, `grid` tables, `image`), which is how Markdown
+  gets a light "rendered" look like Emacs' markdown-mode: tables, callouts,
+  images and inline HTML included. Line-level rendering lives in
+  `render/blocks.rs`; images are PNG only, decoded by the small decoder in
+  `render/png.rs` and loaded off the UI thread by `images.rs`.
 
 ## How to verify changes
 

@@ -283,7 +283,7 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
     let cursor = view.cursor().min(buffer.len_chars());
     let cursor_line = buffer.line_of(cursor);
     let bracket_match = if focused && cursor < buffer.len_chars() && "()[]{}<>".contains(buffer.text.char(cursor)) {
-        movement::matching_bracket(&buffer.text, cursor)
+        movement::matching_bracket_within(&buffer.text, cursor, BRACKET_SEARCH)
     } else {
         None
     };
@@ -447,9 +447,14 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
             };
             // The primary cursor of the focused frame slides to its new place.
             let mut arrived = true;
-            if focused && i == selection.primary_index() {
+            let view = ed.views.get_mut(&view_id).expect("view");
+            if view.anim.is_some() {
+                // While the text slides, the cursor rides along with it. A
+                // cursor slide would chase a target that moves every frame.
+                view.cursor_anim = None;
+                view.cursor_px = None;
+            } else if focused && i == selection.primary_index() {
                 let ms = ed.config.cursor_animation;
-                let view = ed.views.get_mut(&view_id).expect("view");
                 let target = (x - rect.x as f32, (y - rect.y) as f32);
                 let shown = view.cursor_position(target, ms);
                 arrived = view.cursor_anim.is_none();
@@ -476,6 +481,9 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
     }
     ui.painter.reset_clip();
 }
+
+/// How far drawing looks for the bracket matching the one under the cursor.
+const BRACKET_SEARCH: usize = 20_000;
 
 /// Width left for text once the gutter is taken off a frame.
 fn text_rect_width(rect: Rect, gutter: i32) -> f32 {

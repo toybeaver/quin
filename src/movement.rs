@@ -235,34 +235,30 @@ fn bracket_pair(c: char) -> Option<(char, char, bool)> {
 
 /// Matching bracket for the bracket at `pos` (`None` when `pos` is not on one).
 pub fn matching_bracket(text: &Rope, pos: usize) -> Option<usize> {
-    let len = text.len_chars();
-    if pos >= len {
+    matching_bracket_within(text, pos, usize::MAX)
+}
+
+/// Like `matching_bracket`, but gives up after looking at `limit`
+/// characters. Drawing uses this on every frame, where a bracket without a
+/// partner (or a `>` starting a Markdown quote) must not scan the whole file.
+pub fn matching_bracket_within(text: &Rope, pos: usize, limit: usize) -> Option<usize> {
+    if pos >= text.len_chars() {
         return None;
     }
     let (open, close, forward) = bracket_pair(text.char(pos))?;
+    // Walking away from the bracket under the cursor, the bracket of the
+    // same kind nests and the other one unnests.
+    let (same, other) = if forward { (open, close) } else { (close, open) };
+    let chars: Box<dyn Iterator<Item = char>> =
+        if forward { Box::new(text.chars_at(pos)) } else { Box::new(text.chars_at(pos + 1).reversed()) };
     let mut depth = 0usize;
-    if forward {
-        for i in pos..len {
-            let c = text.char(i);
-            if c == open {
-                depth += 1;
-            } else if c == close {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(i);
-                }
-            }
-        }
-    } else {
-        for i in (0..=pos).rev() {
-            let c = text.char(i);
-            if c == close {
-                depth += 1;
-            } else if c == open {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(i);
-                }
+    for (i, c) in chars.take(limit).enumerate() {
+        if c == same {
+            depth += 1;
+        } else if c == other {
+            depth -= 1;
+            if depth == 0 {
+                return Some(if forward { pos + i } else { pos - i });
             }
         }
     }
@@ -404,6 +400,14 @@ mod tests {
         assert_eq!(matching_bracket(&text, 1), Some(8));
         assert_eq!(matching_bracket(&text, 8), Some(1));
         assert_eq!(matching_bracket(&text, 0), None);
+        assert_eq!(matching_bracket(&text, 5), Some(7));
+        assert_eq!(matching_bracket(&text, 7), Some(5));
+        // A bounded search stops early: a Markdown quote's `>` has no partner.
+        assert_eq!(matching_bracket_within(&text, 1, 8), Some(8));
+        assert_eq!(matching_bracket_within(&text, 1, 7), None);
+        assert_eq!(matching_bracket_within(&text, 8, 7), None);
+        let quote = Rope::from_str(&"> quoted line\n".repeat(1000));
+        assert_eq!(matching_bracket_within(&quote, quote.len_chars() - 14, 100), None);
         assert_eq!(goto_matching_bracket(&text, 0), None);
         assert_eq!(goto_matching_bracket(&text, 2), Some(8), "inside a pair: its closing bracket");
         assert_eq!(goto_matching_bracket(&text, 6), Some(7), "the innermost pair wins");

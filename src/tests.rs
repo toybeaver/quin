@@ -1110,3 +1110,24 @@ fn markdown_images_show_below_their_line() {
     assert_eq!(ed.buffer().line_of(deep_inside), 1);
     assert_eq!(char_at(&mut ed, &font, 0, (font.cell_h * 1.5 + 270.0) as i32), after);
 }
+
+#[test]
+fn cursor_rides_with_the_text_while_the_view_slides() {
+    let text: String = (0..200).map(|i| format!("line {i}\n")).collect();
+    let mut ed = editor_with(&text);
+    ed.config.scroll_animation = 10_000;
+    ed.config.cursor_animation = 10_000;
+    let font = crate::render::font::FontSet::builtin(14.0);
+    let font = draw_frame(&mut ed, font);
+    keys(&mut ed, "C-d");
+    assert!(ed.view().anim.is_some(), "the page slides");
+    let font = draw_frame(&mut ed, font);
+    // The cursor moves with the sliding text instead of chasing it.
+    assert!(ed.view().cursor_anim.is_none());
+    // Once the slide is over, the cursor slides again for plain moves.
+    ed.view_mut().anim = None;
+    let font = draw_frame(&mut ed, font);
+    keys(&mut ed, "j");
+    draw_frame(&mut ed, font);
+    assert!(ed.view().cursor_anim.is_some());
+}
