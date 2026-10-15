@@ -128,7 +128,7 @@ fn build_editor(paths: &[PathBuf]) -> Editor {
     let registry = syntax::Registry::load(config_dir.as_ref().map(|d| d.join("syntax")).as_deref());
     let theme = load_theme(&config.theme, config_dir.as_deref()).unwrap_or_else(|| {
         eprintln!("quin: unknown theme `{}`, using dark", config.theme);
-        theme::Theme::builtin("dark").expect("dark theme exists")
+        theme::Theme::builtin("bright-lights").expect("dark theme exists")
     });
     let mut editor = Editor::new(config, registry, theme);
 

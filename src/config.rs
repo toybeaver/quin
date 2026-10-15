@@ -55,7 +55,7 @@ impl Default for Config {
             font: None,
             bold_font: None,
             ligatures: true,
-            theme: "dark".to_string(),
+            theme: "bright-lights".to_string(),
             tab_width: 4,
             line_numbers: true,
             relative_line_numbers: false,
