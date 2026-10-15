@@ -3,7 +3,7 @@
 # quin
 
 > [!WARNING]
-> Although this text editor targets fully manual (artisanal) coding, it is COMPLETELY vibe-coded. 
+> Although this text editor targets fully manual (artisanal) coding, it is COMPLETELY vibe-coded with only some sprinkles of human-made tweaks. 
 > I do intend to rewrite parts of it by hand, but this will forever be an AI-centric codebase due to 2 reasons:
 > 
 > 1. I really wanted a code editor thats plug and play for my necessities without actually requiring to tweak keybindings, plugins, etc; and

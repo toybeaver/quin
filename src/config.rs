@@ -50,7 +50,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
-            font_size: 14.0,
+            font_size: 16.0,
             font_family: None,
             font: None,
             bold_font: None,
