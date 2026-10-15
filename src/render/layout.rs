@@ -2,6 +2,7 @@
 //! Both drawing and mouse hit-testing go through this, so they always agree.
 
 use crate::editor::StyleTable;
+use crate::render::blocks::{PlacedImage, TableRow};
 use crate::render::font::{FontSet, GlyphId, LIGATURE_CHARS};
 use crate::syntax::highlight::Span;
 use crate::theme::Style;
@@ -42,6 +43,12 @@ pub struct LineLayout {
     /// unwrapped x it starts at. One row when not wrapping.
     pub rows: Vec<(usize, f32)>,
     pub row_height: f32,
+    /// Space above the first visual row, inside `height` (table padding).
+    pub text_y: f32,
+    /// Images drawn below the text of the line (`blocks.rs`).
+    pub images: Vec<PlacedImage>,
+    /// Borders to draw when the line is a row of a table (`blocks.rs`).
+    pub table: Option<TableRow>,
 }
 
 impl LineLayout {
@@ -133,6 +140,9 @@ pub fn layout_line(
         width: 0.0,
         rows: vec![(0, 0.0)],
         row_height: font.cell_h,
+        text_y: 0.0,
+        images: Vec::new(),
+        table: None,
     };
     let mut x = 0.0f32;
     let mut column = 0usize; // in base cells, for tab stops
@@ -206,7 +216,7 @@ pub fn layout_line(
 
 /// Where a line breaks into visual rows to fit `width`: before the cell
 /// that would overflow, or at the last space before it when there is one.
-fn wrap_rows(cells: &[Cell], width: f32) -> Vec<(usize, f32)> {
+pub fn wrap_rows(cells: &[Cell], width: f32) -> Vec<(usize, f32)> {
     let mut rows = vec![(0usize, 0.0f32)];
     let mut row_x = 0.0;
     let mut last_space: Option<usize> = None;
@@ -276,7 +286,11 @@ mod tests {
         conceal.conceal = true;
         let mut big = Style::plain(Color::WHITE);
         big.scale = 2.0;
-        StyleTable { styles: vec![Style::plain(Color::WHITE), conceal, big], replacements: vec![None, None, Some("•".to_string())] }
+        StyleTable {
+            styles: vec![Style::plain(Color::WHITE), conceal, big],
+            replacements: vec![None, None, Some("•".to_string())],
+            lines: vec![Default::default(); 3],
+        }
     }
 
     #[test]

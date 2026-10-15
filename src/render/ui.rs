@@ -2,14 +2,15 @@
 //! line, prompt and picker overlays.
 
 use crate::buffer::Buffer;
-use crate::editor::{Editor, MessageKind, Mode, Overlay, Preview, StyleTable};
+use crate::editor::{Editor, LineStyle, MessageKind, Mode, Overlay, Preview, StyleTable};
 use crate::frame::{View, ViewId};
 use crate::movement;
 use crate::picker::{ItemData, PickerItem, PickerKind};
+use crate::render::blocks::{self, Table, TableLine};
 use crate::render::font::FontSet;
 use crate::render::layout::{Cell, LineLayout, layout_line};
 use crate::render::{Color, Painter, Rect};
-use crate::syntax::highlight::{LineState, Span};
+use crate::syntax::highlight::{Frame, Highlighter, LineState, Span};
 use crate::syntax::{Registry, Rule};
 use crate::terminal::{Cell as TermCell, TermColor};
 use crate::theme::Style;
@@ -78,6 +79,7 @@ impl<'a> Ui<'a> {
 /// Draw the editor into the painter. Also records frame rectangles and view
 /// sizes on the editor, which commands need.
 pub fn draw(ed: &mut Editor, ui: &mut Ui) {
+    ed.images.poll();
     let theme_bg = ed.theme.ui("ui.background", Color::BLACK);
     ui.painter.reset_clip();
     ui.painter.fill(theme_bg);
@@ -209,11 +211,12 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
         if ed.mode.is_editing() { ed.theme.ui("ui.cursor.insert", Color::WHITE) } else { ed.theme.ui("ui.cursor", Color::WHITE) };
     let secondary_cursor = ed.theme.ui("ui.cursor.secondary", cursor_color);
     let inactive_cursor = ed.theme.ui("ui.cursor.inactive", cursor_color);
+    let table_color = ed.theme.color("table.border");
 
     // Lay out visible lines; scroll down if the cursor line does not fit.
     let mut layouts = loop {
         let first = ed.views[&view_id].scroll_line;
-        let layouts = layout_visible_lines(ed, ui.font, view_id, first, text_rect.h as f32, base, tab_width, wrap);
+        let layouts = layout_visible_lines(ed, ui.font, view_id, first, (text_rect.w as f32, text_rect.h as f32), base, tab_width, wrap);
         let view = &ed.views[&view_id];
         let cursor_line = ed.buffers[&buffer_id].line_of(view.cursor());
         let shown = layouts.iter().filter(|l| l.y + l.layout.height <= text_rect.h as f32).count();
@@ -226,7 +229,16 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
     // While a scroll slides, draw from where the view appears to be instead.
     let (first_line, slide) = animated_scroll(ed, view_id, cell_h);
     if first_line != ed.views[&view_id].scroll_line || slide != 0 {
-        layouts = layout_visible_lines(ed, ui.font, view_id, first_line, text_rect.h as f32 + cell_h, base, tab_width, wrap);
+        layouts = layout_visible_lines(
+            ed,
+            ui.font,
+            view_id,
+            first_line,
+            (text_rect.w as f32, text_rect.h as f32 + cell_h),
+            base,
+            tab_width,
+            wrap,
+        );
     }
     // Git: hunk headers in the status buffer stand out; the preview split
     // colours added, modified and deleted lines of the file against HEAD.
@@ -283,6 +295,8 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
         let (line, line_start, layout) = (&visible.line, &visible.start, &visible.layout);
         let y_px = text_rect.y + visible.y as i32 - slide;
         let line_rect = Rect::new(rect.x, y_px, rect.w, layout.height as i32);
+        // Where the text rows start (below a table's top padding).
+        let text_y = y_px + layout.text_y as i32;
         if line_rect.y >= rect.bottom() {
             break;
         }
@@ -301,7 +315,7 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
             let color = if *line == cursor_line { linenr_current } else { linenr };
             let x = rect.x + gutter - ui.text_width(&label) - cell_w as i32;
             let baseline_offset = (layout.row_height - cell_h).max(0.0) as i32;
-            ui.text(x, y_px + baseline_offset, &label, color, false);
+            ui.text(x, text_y + baseline_offset, &label, color, false);
         }
 
         ui.painter.set_clip(text_rect);
@@ -312,13 +326,17 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
         if let Some(bg) = visible.background {
             ui.painter.fill_rect(Rect::new(text_rect.x, y_px, text_rect.w, layout.height as i32), bg);
         }
+        if let Some(bar) = visible.bar {
+            let bar_w = (cell_w / 4.0).round().max(2.0) as i32;
+            ui.painter.fill_rect(Rect::new(text_rect.x + bar_w, y_px, bar_w, layout.height as i32), bar);
+        }
 
         // A range of characters filled on every visual row it touches.
         let row_h = layout.row_height as i32;
         let fill_chars = |ui: &mut Ui, from: usize, to: usize, color: Color| {
             for (row, x0, x1) in layout.row_segments(from, to, cell_w) {
                 let x = (origin_x + x0) as i32;
-                ui.painter.fill_rect(Rect::new(x, y_px + row as i32 * row_h, (x1 - x0).max(0.0) as i32, row_h), color);
+                ui.painter.fill_rect(Rect::new(x, text_y + row as i32 * row_h, (x1 - x0).max(0.0) as i32, row_h), color);
             }
         };
 
@@ -364,7 +382,7 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
             if x + cell.width < text_rect.x as f32 || x > text_rect.right() as f32 {
                 continue;
             }
-            let y_row = y_px + row as i32 * row_h;
+            let y_row = text_y + row as i32 * row_h;
             let baseline = y_row as f32 + layout.ascent;
             if let Some(bg) = cell.style.bg {
                 ui.painter.fill_rect(Rect::new(x as i32, y_row, cell.width.ceil() as i32, row_h), bg);
@@ -381,6 +399,31 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
             }
         }
 
+        // Table borders and images.
+        if let Some(table) = &layout.table {
+            let h = layout.height as i32;
+            let (left, right) = (table.borders.first().copied().unwrap_or(0.0), table.borders.last().copied().unwrap_or(0.0));
+            let (x0, w) = ((origin_x + left) as i32, (right - left) as i32 + 1);
+            for border in &table.borders {
+                ui.painter.vline((origin_x + border) as i32, y_px, h, table_color);
+            }
+            if table.separator {
+                ui.painter.hline(x0, y_px + h / 2, w, table_color);
+            }
+            if table.top {
+                ui.painter.hline(x0, y_px, w, table_color);
+            }
+            if table.bottom {
+                ui.painter.hline(x0, y_px + h - 1, w, table_color);
+            }
+        }
+        for image in &layout.images {
+            if let Some(pixels) = ed.images.scaled(&image.path, image.width, image.height) {
+                let (x, y) = ((origin_x + image.x) as i32, y_px + image.y as i32);
+                ui.painter.blit_rgba(x, y, pixels.width, pixels.height, &pixels.rgba);
+            }
+        }
+
         // Cursors.
         for (i, range) in selection.iter().enumerate() {
             let head = range.head.min(buffer.len_chars());
@@ -394,7 +437,7 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
             let col = head - line_start;
             let (cursor_row, x_in_row) = layout.pos_of(col);
             let mut x = origin_x + x_in_row;
-            let mut y = y_px + cursor_row as i32 * row_h;
+            let mut y = text_y + cursor_row as i32 * row_h;
             let color = if !focused {
                 inactive_cursor
             } else if i == selection.primary_index() {
@@ -455,14 +498,28 @@ struct VisibleLine {
     /// Background of the whole line when it sits inside a block that has one
     /// (fenced code in Markdown).
     background: Option<Color>,
+    /// Color of the bar on the left edge (quotes and callouts).
+    bar: Option<Color>,
+    /// The line as a table row, measured; aligned with its table afterwards.
+    table: Option<TableLine>,
+    /// Shown as written because the cursor is on it.
+    reveal: bool,
 }
 
-/// Background color of the innermost open region that has one.
-fn region_background(registry: &Registry, styles: &StyleTable, state: &LineState) -> Option<Color> {
-    state.stack.iter().rev().find_map(|frame| match &registry.get(frame.lang).rules[frame.rule] {
-        Rule::Region { scope, .. } => styles.styles[scope.0 as usize].bg,
-        Rule::Match { .. } => None,
-    })
+/// How the regions covering a line change it as a whole: the merged line
+/// styles, and the background of the innermost region that has one.
+fn line_style(registry: &Registry, styles: &StyleTable, regions: &[Frame]) -> (LineStyle, Option<Color>) {
+    let mut merged = LineStyle::default();
+    let mut background = None;
+    for frame in regions {
+        let Rule::Region { scope, .. } = &registry.get(frame.lang).rules[frame.rule] else { continue };
+        let line = styles.lines[scope.0 as usize];
+        merged.bar = line.bar.or(merged.bar);
+        merged.center |= line.center;
+        merged.grid |= line.grid;
+        background = styles.styles[scope.0 as usize].bg.or(background);
+    }
+    (merged, background)
 }
 
 /// Lay out the lines visible in a view.
@@ -476,13 +533,17 @@ fn animated_scroll(ed: &mut Editor, view_id: ViewId, cell_h: f32) -> (usize, i32
     (first, ((shown - first as f32) * cell_h).round() as i32)
 }
 
+/// How far above and below the visible lines a table is followed to size
+/// its columns.
+const TABLE_SCAN: usize = 100;
+
 #[allow(clippy::too_many_arguments)]
 fn layout_visible_lines(
     ed: &mut Editor,
     font: &FontSet,
     view_id: ViewId,
     scroll_line: usize,
-    height: f32,
+    (width, height): (f32, f32),
     base: Style,
     tab_width: usize,
     wrap: Option<f32>,
@@ -494,8 +555,13 @@ fn layout_visible_lines(
     let registry = &ed.registry;
     let highlighter = &mut ed.highlighter;
     let styles = &ed.styles;
+    let images = &mut ed.images;
+    let wake = ed.wake.as_ref();
     let buffer = ed.buffers.get_mut(&buffer_id).expect("buffer");
+    let dir = buffer.path.as_ref().and_then(|p| p.parent()).map(|p| p.to_path_buf()).unwrap_or_else(|| ed.cwd.clone());
     let line_count = buffer.line_count();
+    // Images may take most of a frame, not all of it.
+    let image_box = (width, (height * 0.75).max(font.cell_h));
 
     let mut out = Vec::new();
     let mut y = 0.0;
@@ -505,24 +571,90 @@ fn layout_visible_lines(
     while line < line_count && y < height {
         let text = buffer.line_text(line);
         spans.clear();
-        let mut background = None;
+        let (mut line_style, mut background) = (LineStyle::default(), None);
         if let Some(lang) = buffer.language {
             let state = state.get_or_insert_with(|| {
                 buffer.highlight.ensure(line.saturating_sub(1), &buffer.text, lang, registry, highlighter);
                 buffer.highlight.state_before(line)
             });
-            // A block's background covers the lines inside it and both fence lines.
-            let before = region_background(registry, styles, state);
             highlighter.highlight_line(registry, lang, &text, state, &mut spans);
-            background = before.or_else(|| region_background(registry, styles, state));
+            (line_style, background) = self::line_style(registry, styles, &highlighter.line_regions);
         }
         let reveal = is_focused && line == cursor_line;
-        let layout = layout_line(&text, &spans, styles, base, font, tab_width, reveal, wrap);
+        let mut layout = layout_line(&text, &spans, styles, base, font, tab_width, reveal, wrap);
+        let mut table = None;
+        if line_style.grid {
+            let measured = if reveal { &layout_line(&text, &spans, styles, base, font, tab_width, false, None) } else { &layout };
+            table = Some(blocks::measure_row(measured, &text));
+        } else {
+            blocks::place_images(&mut layout, &text, &spans, styles, images, wake, &dir, image_box, reveal, wrap);
+        }
+        if line_style.center {
+            blocks::center(&mut layout, width, reveal);
+        }
         let start = buffer.line_start(line);
         let h = layout.height;
-        out.push(VisibleLine { line, start, y, layout, background });
+        out.push(VisibleLine { line, start, y, layout, background, bar: line_style.bar, table, reveal });
         y += h;
         line += 1;
+    }
+
+    // Tables: the columns fit the widest cell of the whole table, which may
+    // extend above or below the visible lines.
+    let Some(lang) = buffer.language else { return out };
+    let mut i = 0;
+    while i < out.len() {
+        if out[i].table.is_none() {
+            i += 1;
+            continue;
+        }
+        let mut j = i;
+        while j + 1 < out.len() && out[j + 1].table.is_some() {
+            j += 1;
+        }
+        let mut table = Table::new(out[i].line);
+        for visible in &out[i..=j] {
+            table.add(visible.line, visible.table.as_ref().expect("table row"));
+        }
+        // A table row outside the view, measured, or `None` where the table stops.
+        let mut measure = |text: &str, state: &mut LineState, highlighter: &mut Highlighter| {
+            highlighter.highlight_line(registry, lang, text, state, &mut spans);
+            if !self::line_style(registry, styles, &highlighter.line_regions).0.grid {
+                return None;
+            }
+            let layout = layout_line(text, &spans, styles, base, font, tab_width, false, None);
+            Some(blocks::measure_row(&layout, text))
+        };
+        if i == 0 {
+            for line in (out[0].line.saturating_sub(TABLE_SCAN)..out[0].line).rev() {
+                buffer.highlight.ensure(line.saturating_sub(1), &buffer.text, lang, registry, highlighter);
+                let mut before = buffer.highlight.state_before(line);
+                let Some(row) = measure(&buffer.line_text(line), &mut before, highlighter) else { break };
+                table.add(line, &row);
+            }
+        }
+        if j == out.len() - 1
+            && let Some(state) = &mut state
+        {
+            let next = out[j].line + 1;
+            for line in next..line_count.min(next + TABLE_SCAN) {
+                let Some(row) = measure(&buffer.line_text(line), state, highlighter) else { break };
+                table.add(line, &row);
+            }
+        }
+        for visible in &mut out[i..=j] {
+            if !visible.reveal {
+                let row = visible.table.as_ref().expect("table row");
+                blocks::align_row(&mut visible.layout, visible.line, row, &table, font.cell_w);
+            }
+        }
+        i = j + 1;
+    }
+    // Rows changed height: stack the lines again.
+    let mut y = 0.0;
+    for visible in &mut out {
+        visible.y = y;
+        y += visible.layout.height;
     }
     out
 }
@@ -1043,13 +1175,14 @@ pub fn position_at(ed: &mut Editor, font: &FontSet, view_id: ViewId, rect: Rect,
     let scroll_x = ed.views[&view_id].scroll_col as f32 * font.cell_w;
     let (first_line, slide) = animated_scroll(ed, view_id, font.cell_h);
     let wrap = if ed.config.wrap { Some(text_rect_width(rect, gutter)) } else { None };
-    let layouts = layout_visible_lines(ed, font, view_id, first_line, rect.h as f32 + font.cell_h, base, tab_width, wrap);
+    let size = (text_rect_width(rect, gutter), rect.h as f32 + font.cell_h);
+    let layouts = layout_visible_lines(ed, font, view_id, first_line, size, base, tab_width, wrap);
     let y = (py - rect.y) as f32 + slide as f32;
     let buffer = &ed.buffers[&buffer_id];
     for visible in &layouts {
         if y >= visible.y && y < visible.y + visible.layout.height {
             let x = (px - text_x) as f32 + scroll_x;
-            let row = ((y - visible.y) / visible.layout.row_height) as usize;
+            let row = ((y - visible.y - visible.layout.text_y).max(0.0) / visible.layout.row_height) as usize;
             let col = visible.layout.char_at(row, x);
             return Some((visible.start + col).min(buffer.line_end(visible.line)));
         }

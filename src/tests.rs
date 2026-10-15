@@ -1019,3 +1019,94 @@ fn clipboard_pastes_into_pickers_and_seeds_the_global_search() {
     keys(&mut ed, "esc");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A markdown buffer drawn once into an off-screen frame, ready for mouse
+/// hit-testing (which reads the same line layouts as drawing).
+fn markdown_editor(text: &str) -> (Editor, crate::render::font::FontSet) {
+    let mut ed = editor_with(text);
+    let markdown = ed.registry.find("markdown");
+    ed.buffer_mut().set_language(markdown);
+    let font = crate::render::font::FontSet::builtin(14.0);
+    let font = draw_frame(&mut ed, font);
+    (ed, font)
+}
+
+fn draw_frame(ed: &mut Editor, mut font: crate::render::font::FontSet) -> crate::render::font::FontSet {
+    let mut pixels = vec![0u32; 800 * 600];
+    let painter = crate::render::Painter::new(&mut pixels, 800, 600);
+    let mut ui = crate::render::ui::Ui { painter, font: &mut font };
+    crate::render::ui::draw(ed, &mut ui);
+    font
+}
+
+/// Character index under a pixel of the focused frame.
+fn char_at(ed: &mut Editor, font: &crate::render::font::FontSet, x: i32, y: i32) -> usize {
+    let (view_id, rect) = ed.frame_rects[0];
+    crate::render::ui::position_at(ed, font, view_id, rect, rect.x + x, rect.y + y).unwrap()
+}
+
+#[test]
+fn markdown_tables_line_up_their_columns() {
+    let text = "text\n| a | long cell |\n|---|---|\n| wide one | b |\n";
+    let (mut ed, font) = markdown_editor(text);
+    let cell_h = font.cell_h;
+    // The table (lines 1-3) has half a row of padding above its first row.
+    let pad = (cell_h / 2.0).floor();
+    let row_y = |line: usize| (cell_h * (line as f32 + 0.5) + if line >= 1 { pad } else { 0.0 }) as i32;
+    // Find where "long" starts on the first row, by pixel.
+    let long = text.find("long").unwrap();
+    let x = (0..800).find(|&x| char_at(&mut ed, &font, x, row_y(1)) == long).expect("long is on screen");
+    // In the last row, the same column starts with "b", although "wide one"
+    // pushed it further right in the text.
+    assert_eq!(char_at(&mut ed, &font, x, row_y(3)), text.find("b |").unwrap());
+    // With the cursor on a row, that row shows as written: "long" moves back.
+    keys(&mut ed, "j");
+    let font = draw_frame(&mut ed, font);
+    let raw = (0..800).find(|&x| char_at(&mut ed, &font, x, (cell_h * 1.5) as i32) == long).unwrap();
+    assert!(raw < x, "revealed row is not aligned ({raw} vs {x})");
+}
+
+#[test]
+fn markdown_callouts_end_at_the_first_unquoted_line() {
+    let ed = editor_with("");
+    let registry = &ed.registry;
+    let lang = registry.find("markdown").unwrap();
+    let mut highlighter = crate::syntax::highlight::Highlighter::new();
+    let mut state = crate::syntax::highlight::LineState::default();
+    let mut spans = Vec::new();
+    let mut covered = Vec::new();
+    for line in ["> [!WARNING]", "> careful", "", "after"] {
+        highlighter.highlight_line(registry, lang, line, &mut state, &mut spans);
+        covered.push(highlighter.line_regions.len());
+    }
+    assert_eq!(covered, vec![1, 1, 0, 0], "the blank line closes the callout without being part of it");
+    let styles = &ed.styles;
+    highlighter.highlight_line(registry, lang, "> [!WARNING]", &mut state, &mut spans);
+    let frame = highlighter.line_regions[0];
+    let crate::syntax::Rule::Region { scope, .. } = &registry.get(frame.lang).rules[frame.rule] else { panic!("not a region") };
+    assert!(styles.lines[scope.0 as usize].bar.is_some(), "callouts have a bar");
+    assert_eq!(styles.replacements[spans[1].scope.0 as usize].as_deref(), Some("\u{f421}  Warning"));
+}
+
+#[test]
+fn markdown_images_show_below_their_line() {
+    let icon = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/icon/icon-256.png");
+    let text = format!("top\n![logo]({})\nafter\n", icon.display());
+    let (mut ed, font) = markdown_editor(&text);
+    let after = text.find("after").unwrap();
+    // Not loaded yet: the image line is one row of text.
+    assert_eq!(char_at(&mut ed, &font, 0, (font.cell_h * 2.5) as i32), after);
+    for _ in 0..500 {
+        if ed.images.poll() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let font = draw_frame(&mut ed, font);
+    // Loaded: the line is the 256px image (its text hidden), "after" comes below.
+    let below_top = char_at(&mut ed, &font, 0, (font.cell_h * 2.5) as i32);
+    let deep_inside = char_at(&mut ed, &font, 0, (font.cell_h + 200.0) as i32);
+    assert_eq!(ed.buffer().line_of(below_top), 1);
+    assert_eq!(ed.buffer().line_of(deep_inside), 1);
+    assert_eq!(char_at(&mut ed, &font, 0, (font.cell_h * 1.5 + 270.0) as i32), after);
+}

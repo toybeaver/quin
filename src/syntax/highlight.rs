@@ -33,8 +33,8 @@ pub struct Span {
     pub scope: ScopeId,
 }
 
-/// Scope and end pattern of the region we are currently inside.
-type RegionContext<'a> = (ScopeId, &'a regex::Regex);
+/// Scope, end pattern and `keep-end` flag of the region we are currently inside.
+type RegionContext<'a> = (ScopeId, &'a regex::Regex, bool);
 
 #[derive(Debug, Clone, Copy)]
 enum Found {
@@ -52,6 +52,11 @@ type CachedMatch = Option<Option<(usize, usize)>>;
 pub struct Highlighter {
     /// Indexed by `[language][rule]`.
     cache: Vec<Vec<CachedMatch>>,
+    /// Regions that cover some of the last highlighted line, outermost first:
+    /// those open at its start (unless a `keep-end` closed them before its
+    /// first character) and those that opened on it. Line decorations (code
+    /// block background, quote bar, centering, tables) are read from here.
+    pub line_regions: Vec<Frame>,
 }
 
 impl Highlighter {
@@ -107,25 +112,27 @@ impl Highlighter {
     pub fn highlight_line(&mut self, registry: &Registry, lang: LangId, line: &str, state: &mut LineState, out: &mut Vec<Span>) {
         out.clear();
         self.reset_cache(registry);
+        self.line_regions.clear();
+        self.line_regions.extend_from_slice(&state.stack);
         let mut pos = 0;
         loop {
             // Rules that apply here and, inside a region, its end pattern and scope.
             let (rules, region): (Vec<(LangId, usize)>, Option<RegionContext<'_>>) = match state.stack.last() {
                 None => (registry.get(lang).top.iter().map(|&r| (lang, r)).collect(), None),
                 Some(frame) => match &registry.get(frame.lang).rules[frame.rule] {
-                    Rule::Region { scope, end, inner, .. } => {
+                    Rule::Region { scope, end, inner, keep_end, .. } => {
                         let mut rules: Vec<(LangId, usize)> = inner.iter().map(|&r| (frame.lang, r)).collect();
                         if let Some(embedded) = frame.embed {
                             rules.extend(registry.get(embedded).top.iter().map(|&r| (embedded, r)));
                         }
-                        (rules, Some((*scope, end)))
+                        (rules, Some((*scope, end, *keep_end)))
                     }
                     Rule::Match { .. } => unreachable!("only regions are pushed on the stack"),
                 },
             };
 
             let mut best: Option<(usize, usize, Found)> = None;
-            if let Some((_, end)) = region
+            if let Some((_, end, _)) = region
                 && let Some(m) = end.find_at(line, pos)
             {
                 best = Some((m.start(), m.end(), Found::RegionEnd));
@@ -139,18 +146,28 @@ impl Highlighter {
             }
 
             let Some((start, end, found)) = best else {
-                if let Some((scope, _)) = region {
+                if let Some((scope, _, _)) = region {
                     push_span(out, pos, line.len(), scope);
                 }
                 break;
             };
-            if let Some((scope, _)) = region {
+            if let Some((scope, _, _)) = region {
                 push_span(out, pos, start, scope);
             }
             match found {
                 Found::RegionEnd => {
-                    push_span(out, start, end, region.expect("inside a region").0);
-                    state.stack.pop();
+                    let (scope, _, keep_end) = region.expect("inside a region");
+                    let closed = state.stack.pop();
+                    if keep_end {
+                        // The outer rules look at the matched text again. This
+                        // cannot loop: every region start consumes text.
+                        if start == 0 && closed.is_some() && self.line_regions.last() == closed.as_ref() {
+                            self.line_regions.pop();
+                        }
+                        pos = start;
+                        continue;
+                    }
+                    push_span(out, start, end, scope);
                 }
                 Found::Rule(rule_lang, rule) => match &registry.get(rule_lang).rules[rule] {
                     Rule::Match { scope, regex, captures } => {
@@ -167,6 +184,7 @@ impl Highlighter {
                                 .and_then(|m| registry.find(m.as_str().trim())),
                         };
                         state.stack.push(Frame { lang: rule_lang, rule, embed });
+                        self.line_regions.push(Frame { lang: rule_lang, rule, embed });
                     }
                 },
             }
@@ -392,6 +410,23 @@ mod tests {
         h.highlight_line(&registry, LangId(0), "# a **b**", &mut state, &mut spans);
         assert!(state.stack.is_empty());
         assert_eq!(scopes(&registry, &spans), vec![(0, 2, "heading".into()), (2, 4, "heading".into()), (4, 9, "strong".into())]);
+    }
+
+    #[test]
+    fn keep_end_leaves_the_closing_text_to_outer_rules() {
+        let registry = registry("name t\nregion quote ^> ^[^>] keep-end\nmatch word \\w+\n");
+        let mut h = Highlighter::new();
+        let mut state = LineState::default();
+        let mut spans = Vec::new();
+        h.highlight_line(&registry, LangId(0), "> a", &mut state, &mut spans);
+        assert_eq!(state.stack.len(), 1);
+        assert_eq!(h.line_regions.len(), 1);
+        // The region ends at "b" but "b" is still a word, and the line is not
+        // covered by the region at all.
+        h.highlight_line(&registry, LangId(0), "b", &mut state, &mut spans);
+        assert!(state.stack.is_empty());
+        assert!(h.line_regions.is_empty());
+        assert_eq!(scopes(&registry, &spans), vec![(0, 1, "word".into())]);
     }
 
     #[test]

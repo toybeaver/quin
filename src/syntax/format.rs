@@ -18,12 +18,22 @@
 //! keywords <scope> word word ...      # words highlighted with <scope>
 //! match    <scope> <regex> [N:<scope> ...]
 //!                                     # one-line pattern; captures may get their own scope
-//! region   <scope> <start-regex> <end-regex> [embed=<lang>|embed=N] [N:<scope> ...]
+//! region   <scope> <start-regex> <end-regex> [embed=<lang>|embed=N] [keep-end] [N:<scope> ...]
 //!   match  <scope> <regex>            # indented rules apply inside the region
 //!
 //! style    <scope> [bold] [italic] [underline] [strike] [conceal]
 //!                  [size=1.4] [bg=<scope>] [replace=<text>]
+//!                  [bar=<scope>] [center] [grid] [image]
 //! ```
+//!
+//! `keep-end` closes the region where the end pattern matches without making
+//! the matched text part of it: the rules outside the region see that text
+//! again (a quote ends at the first line that does not start with `>`).
+//!
+//! `bar`, `center` and `grid` act on whole lines and apply to region scopes:
+//! every line the region covers gets a colored bar on its left edge, is
+//! centered, or is aligned as a row of a `|` pipe table. `image` marks a token
+//! that holds the path of an image to show below its line.
 //!
 //! Rules are tried in order at every position; the earliest match wins, ties go
 //! to the rule listed first. Regexes use Rust's `regex` syntax (no lookaround or
@@ -96,9 +106,12 @@ pub fn parse(source: &str, scopes: &mut Scopes) -> Result<Language, String> {
                 let start = compile(&rest[1]).map_err(|e| err(&e))?;
                 let end = compile(&rest[2]).map_err(|e| err(&e))?;
                 let mut embed = None;
+                let mut keep_end = false;
                 let mut capture_args = Vec::new();
                 for arg in &rest[3..] {
-                    if let Some(value) = arg.strip_prefix("embed=") {
+                    if arg == "keep-end" {
+                        keep_end = true;
+                    } else if let Some(value) = arg.strip_prefix("embed=") {
                         embed = Some(match value.parse::<usize>() {
                             Ok(group) => Embed::Capture(group),
                             Err(_) => Embed::Language(value.to_ascii_lowercase()),
@@ -108,7 +121,7 @@ pub fn parse(source: &str, scopes: &mut Scopes) -> Result<Language, String> {
                     }
                 }
                 let start_captures = parse_captures(&capture_args, scopes).map_err(|e| err(&e))?;
-                let rule = Rule::Region { scope: scopes.intern(&rest[0]), start, end, start_captures, inner: Vec::new(), embed };
+                let rule = Rule::Region { scope: scopes.intern(&rest[0]), start, end, start_captures, inner: Vec::new(), embed, keep_end };
                 let index = push_rule(&mut lang, rule, indented, open_region);
                 if !indented {
                     open_region = Some(index);
@@ -204,10 +217,14 @@ fn parse_style(args: &[String]) -> Result<StyleAttrs, String> {
             "underline" => attrs.underline = true,
             "strike" => attrs.strike = true,
             "conceal" => attrs.conceal = true,
+            "center" => attrs.center = true,
+            "grid" => attrs.grid = true,
+            "image" => attrs.image = true,
             _ => match arg.split_once('=') {
                 Some(("size", v)) => attrs.size = Some(v.parse().map_err(|_| format!("bad size `{v}`"))?),
                 Some(("bg", v)) => attrs.bg = Some(v.to_string()),
                 Some(("replace", v)) => attrs.replace = Some(v.to_string()),
+                Some(("bar", v)) => attrs.bar = Some(v.to_string()),
                 _ => return Err(format!("unknown style attribute `{arg}`")),
             },
         }

@@ -93,6 +93,18 @@ list.marker          #4078f2
 quote                #a0a1a7 italic
 rule                 #c6c8cc
 table                #383a42
+table.border         #c6c8cc
+image                #a0a1a7 italic    # an image path while the image is not shown
+callout.note                 #4078f2    # > [!NOTE] blocks: bar and title
+callout.note.background      #ebf0f9
+callout.tip                  #50a14f    # > [!TIP] blocks: bar and title
+callout.tip.background       #ecf3ec
+callout.important            #a626a4    # > [!IMPORTANT] blocks: bar and title
+callout.important.background #f3e9f3
+callout.warning              #c18401    # > [!WARNING] blocks: bar and title
+callout.warning.background   #f5f1e6
+callout.caution              #e45649    # > [!CAUTION] blocks: bar and title
+callout.caution.background   #f8edec
 
 # --- Diff ---
 diff.add             #50a14f

@@ -12,6 +12,7 @@ mod files;
 mod frame;
 mod git;
 mod history;
+mod images;
 mod install;
 mod keymap;
 mod movement;
@@ -246,10 +247,18 @@ fn run_headless(editor: &mut Editor, path: &Path, size: (u32, u32), keys: &str) 
         editor.process_terminals();
         editor.poll_search();
     }
+    // Draw once more so that images on screen start loading, then wait for them.
+    {
+        let painter = Painter::new(&mut pixels, size.0 as usize, size.1 as usize);
+        let mut ui = Ui { painter, font: &mut font };
+        render::ui::draw(editor, &mut ui);
+    }
     wait_for_background(editor);
     editor.views.values_mut().for_each(|v| {
         v.anim = None;
         v.cursor_anim = None;
+        // Loaded images moved lines: the cursor must not slide from where it was.
+        v.cursor_px = None;
     });
     let painter = Painter::new(&mut pixels, size.0 as usize, size.1 as usize);
     let mut ui = Ui { painter, font: &mut font };
@@ -268,7 +277,12 @@ fn wait_for_background(editor: &mut Editor) {
     for _ in 0..200 {
         editor.poll_search();
         editor.poll_git(false);
-        if editor.live_search.as_ref().is_none_or(|s| s.done) && !editor.git.in_flight() && editor.git.remote.is_none() {
+        editor.images.poll();
+        if editor.live_search.as_ref().is_none_or(|s| s.done)
+            && !editor.git.in_flight()
+            && editor.git.remote.is_none()
+            && !editor.images.loading()
+        {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(10));

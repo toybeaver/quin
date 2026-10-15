@@ -25,8 +25,9 @@ terminal in a buffer. Helix-style modal editing, trimmed to the basics.
 - **Own syntax format.** Highlighting rules live in small readable `*.syn`
   files which also say *how* tokens render: Markdown headings are bigger,
   `**markers**` are hidden, list bullets become `•`, fenced code is highlighted
-  in its own language. Converters import TextMate grammars and tree-sitter
-  `highlights.scm` files.
+  in its own language, tables line up in a grid, `> [!NOTE]` callouts get a
+  coloured bar, and images and inline HTML show as they would on a forge.
+  Converters import TextMate grammars and tree-sitter `highlights.scm` files.
 - **Fuzzy everything.** File picker (any directory on the machine), buffer
   picker, command palette, and a global search that fills in as you type.
 
@@ -206,6 +207,7 @@ match number           \b\d[\d_]*\b
 
 region comment         /\*  \*/                 # multi-line, may span lines
 region code.block      '^```\s*(\w*)'  '^```'  embed=1   # embed the language named by capture 1
+region quote           '^>'  '^[^>]'  keep-end          # ends before the first line without `>`
 
 style comment.todo bold
 ```
@@ -213,7 +215,9 @@ style comment.todo bold
 Rules are tried in order at each position; the earliest match wins (first
 rule on ties). Regexes use Rust's `regex` syntax: no look-around, no
 back-references. `^`/`$` are line boundaries. A region's end may be `$`, which
-makes a one-line region that can hold inner rules.
+makes a one-line region that can hold inner rules. With `keep-end`, the region
+closes where its end matches, but the matched text is not part of it: the
+rules outside the region highlight that text again.
 
 **Rendering** is where the format differs from classic highlighters.
 `style <scope> ...` attaches display attributes to a scope:
@@ -225,11 +229,36 @@ makes a one-line region that can hold inner rules.
 | `conceal` | hidden unless the cursor is on the line |
 | `replace=•` | draw this text instead of the token |
 | `bg=<scope>` | background from the theme color of another scope |
+| `bar=<scope>` | on a region: a bar in that color on the left of each of its lines |
+| `center` | on a region: its lines are centered in the frame |
+| `grid` | on a region: its lines are rows of a `\|` table, aligned into columns with borders |
+| `image` | the token names an image file, drawn below the line |
 
 See `assets/syntax/markdown.syn`: `# Heading` hides the `#` and draws the text
 at 1.6x bold, `**bold**` hides the stars, `- item` becomes `• item`, `[text](url)`
 shows only the underlined text, and fenced code blocks embed the named
 language. Put the cursor on a line to see it as written.
+
+Markdown also renders these blocks:
+
+- **Tables.** Each row is a one-line `grid` region. The columns get the width
+  of their widest cell (the editor looks up to 100 rows above and below the
+  screen). The `|---|` row sets the alignment (`:--`, `:-:`, `--:`), and the
+  rows above it are the bold header. The row under the cursor shows as
+  written.
+- **Callouts.** `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` and
+  `[!CAUTION]` (also `[!INFO]`, `[!DANGER]`...) start a quote with a coloured
+  bar, a tint, an icon and a title. Plain `>` quotes get a grey bar. Themes
+  set the colours with `callout.<kind>` and `callout.<kind>.background`.
+- **Images.** `![alt](path)`, `[![alt](path)](link)` and `<img src="path"
+  width="160">` show the image below the line, scaled to fit the frame. A line
+  that holds only images shows only the images. Paths are relative to the
+  Markdown file. Files load on a background thread; until then, and for images
+  that cannot load, the alt text (or the tag) stays.
+- **Inline HTML.** Tags are hidden. `<b>`, `<i>`, `<u>`, `<s>`, `<code>`,
+  `<kbd>`, `<h1>`-`<h3>` and `<summary>` style their content, `align="center"`
+  on `<p>`, `<div>` or `<h1>`-`<h6>` centers the block, and common entities
+  (`&nbsp;`, `&amp;`, `&copy;`, `&mdash;`...) show as their character.
 
 Scope names are shared with the themes (`keyword`, `string`, `comment`,
 `function`, `type`, `number`, `heading.1`, `strong`, `link`...). A theme line
@@ -263,6 +292,8 @@ point to edit by hand. Drop the result in `~/.config/quin/syntax/`.
   as `�` (CJK needs a font that has them: set `font` in the config). Fonts
   are found by file name, not through fontconfig.
 - Terminal: no images (sixel and the like).
+- Markdown images: local PNG files only (not interlaced). No JPEG, GIF or SVG,
+  and no remote URLs (badges show their alt text). Table rows do not wrap.
 - No LSP, no tree-sitter, and that is on purpose.
 - A WebAssembly build is not wired up yet; the platform-specific parts
   (terminal, clipboard, file system) are confined to a few files for when it is.

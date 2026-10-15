@@ -3,7 +3,9 @@
 # This file is also the showcase for quin's "rendered" display: markers like
 # `**`, `#` or backticks are concealed (hidden unless the cursor is on their
 # line), headings are drawn bigger and bold, list bullets are replaced by `•`,
-# and fenced code blocks are highlighted with the named language.
+# fenced code blocks are highlighted with the named language, quotes and
+# callouts get a bar, tables are aligned into a grid, images are drawn, and
+# inline HTML tags disappear behind what they do.
 
 name          markdown
 extensions    md markdown mdown mkd
@@ -14,6 +16,31 @@ auto-pairs    () [] {} "" ** ``
 # Fenced code blocks: the language name after ``` picks the embedded syntax.
 region code.block   ^\s*```\s*([A-Za-z0-9_+-]*).*$   ^\s*```\s*$   embed=1   0:punctuation.special
 region code.block   ^\s*~~~.*$                        ^\s*~~~\s*$   0:punctuation.special
+
+# Callouts (GitHub alerts): `> [!NOTE]` starts a quote with a colored bar, an
+# icon and a title. Like any quote, it runs until a line that is not quoted;
+# `keep-end` leaves that line to the rules below.
+region block.note       '^\s*(>\s*)(\[!(?i:note|info)\])'  '^\s*(?:[^>\s]|$)'  keep-end embed=markdown  1:quote.marker 2:callout.note.title
+  match quote.marker   '^\s*>\s?'
+region block.tip        '^\s*(>\s*)(\[!(?i:tip|hint|success)\])'  '^\s*(?:[^>\s]|$)'  keep-end embed=markdown  1:quote.marker 2:callout.tip.title
+  match quote.marker   '^\s*>\s?'
+region block.important  '^\s*(>\s*)(\[!(?i:important)\])'  '^\s*(?:[^>\s]|$)'  keep-end embed=markdown  1:quote.marker 2:callout.important.title
+  match quote.marker   '^\s*>\s?'
+region block.warning    '^\s*(>\s*)(\[!(?i:warning|attention)\])'  '^\s*(?:[^>\s]|$)'  keep-end embed=markdown  1:quote.marker 2:callout.warning.title
+  match quote.marker   '^\s*>\s?'
+region block.caution    '^\s*(>\s*)(\[!(?i:caution|danger|error)\])'  '^\s*(?:[^>\s]|$)'  keep-end embed=markdown  1:quote.marker 2:callout.caution.title
+  match quote.marker   '^\s*>\s?'
+
+# Quotes: every line until one without `>`. The `>` turns into the bar.
+region quote   '^\s*(>\s?)'  '^\s*(?:[^>\s]|$)'  keep-end embed=markdown  1:quote.marker
+  match quote.marker   '^\s*>\s?'
+
+# Tables: each `|` row is a one-line region (so inline markup works in its
+# cells); `grid` aligns consecutive rows and draws their borders.
+region table   '^\s*\|'  '$'  embed=markdown
+
+# HTML blocks with align="center" center what they hold.
+region block.center  '<(?:p|div|h[1-6])\s[^>]*\balign=.?center[^>]*>'  '</(?:p|div|h[1-6])>'  keep-end embed=markdown  0:html.tag
 
 # Headings (the hashes are hidden, the text is bigger).
 match heading.1   ^(#)\s+(.*)$        1:conceal 2:heading.1
@@ -28,12 +55,10 @@ match heading.2   ^-{3,}\s*$
 # Block elements.
 match rule          ^\s*(?:\*\s*){3,}$
 match rule          ^\s*(?:_\s*){3,}$
-match quote         ^\s*>.*$
 match list          '^\s*([-*+])\s+(\[ \])'     1:list.marker 2:list.checkbox.unchecked
 match list          ^\s*([-*+])\s+(\[[xX]\])   1:list.marker 2:list.checkbox.checked
 match list          ^\s*([-*+])\s              1:list.marker
 match list          ^\s*(\d+\.)\s              1:list.number
-match table         ^\s*\|.*\|\s*$
 
 # Inline elements. Order matters: strong before emphasis.
 match code           (`+)([^`]+)(`+)              1:conceal 2:code 3:conceal
@@ -42,10 +67,33 @@ match strong         (__)([^_]+)(__)              1:conceal 2:strong 3:conceal
 match emphasis       (\*)([^*\s][^*]*)(\*)        1:conceal 2:emphasis 3:conceal
 match emphasis       \b(_)([^_]+)(_)\b            1:conceal 2:emphasis 3:conceal
 match strike         (~~)([^~]+)(~~)              1:conceal 2:strike 3:conceal
-match link           (!?\[)([^\]]*)(\]\()([^)]*)(\))   1:conceal 2:link.text 3:conceal 4:conceal 5:conceal
+# Images, also inside a link (badges). Drawn below the line once loaded.
+match image          '(\[!\[)([^\]]*)(\]\()([^)\s]*)([^)]*\)\]\([^)]*\))'   1:image.marker 2:image.alt 3:image.marker 4:image.path 5:image.marker
+match image          '(!\[)([^\]]*)(\]\()(<[^>]*>|[^)\s]*)((?:\s+"[^"]*")?\))'      1:image.marker 2:image.alt 3:image.marker 4:image.path 5:image.marker
+match link           (\[)([^\]]*)(\]\()([^)]*)(\))   1:conceal 2:link.text 3:conceal 4:conceal 5:conceal
 match link.url       <https?://[^>]+>
 match link.url       \bhttps?://[^\s)>]+
 match comment        <!--.*?-->
+
+# Inline HTML. A few tags style their content; every other tag is hidden.
+match image.html     '<img\s[^>]*>'
+match strong         '(<(?:b|strong)>)(.*?)(</(?:b|strong)>)'        1:html.tag 2:strong 3:html.tag
+match emphasis       '(<(?:i|em)>)(.*?)(</(?:i|em)>)'                1:html.tag 2:emphasis 3:html.tag
+match underline      '(<(?:u|ins)>)(.*?)(</(?:u|ins)>)'              1:html.tag 2:underline 3:html.tag
+match strike         '(<(?:s|del|strike)>)(.*?)(</(?:s|del|strike)>)' 1:html.tag 2:strike 3:html.tag
+match code           '(<(?:code|kbd|samp)>)(.*?)(</(?:code|kbd|samp)>)' 1:html.tag 2:code 3:html.tag
+match heading.1      '^\s*(<h1>)(.*?)(</h1>)'   1:html.tag 2:heading.1 3:html.tag
+match heading.2      '^\s*(<h2>)(.*?)(</h2>)'   1:html.tag 2:heading.2 3:html.tag
+match heading.3      '^\s*(<h3>)(.*?)(</h3>)'   1:html.tag 2:heading.3 3:html.tag
+match strong         '(<summary>)(.*?)(</summary>)'   1:html.summary 2:strong 3:html.tag
+match html.tag       '</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>'
+match html.nbsp      &nbsp;
+match html.amp       &amp;
+match html.lt        &lt;
+match html.gt        &gt;
+match html.quot      &quot;
+match html.copy      &copy;
+match html.dash      &mdash;
 match string.escape  \\[\\`*_{}\[\]()#+.!-]
 
 # How the tokens above are rendered.
@@ -65,4 +113,31 @@ style link.text           underline
 style list.marker         replace=•
 style list.checkbox.unchecked replace=□
 style list.checkbox.checked   replace=■
-style quote               italic
+style quote               italic bar=quote
+style quote.marker        'replace=  '
+style table               grid
+style block.center        center
+style block.note             bg=callout.note.background bar=callout.note
+style callout.note.title      bold 'replace=  Note'
+style block.tip              bg=callout.tip.background bar=callout.tip
+style callout.tip.title       bold 'replace=  Tip'
+style block.important        bg=callout.important.background bar=callout.important
+style callout.important.title bold 'replace=  Important'
+style block.warning          bg=callout.warning.background bar=callout.warning
+style callout.warning.title   bold 'replace=  Warning'
+style block.caution          bg=callout.caution.background bar=callout.caution
+style callout.caution.title   bold 'replace=  Caution'
+style image.marker        conceal image
+style image.path          conceal image
+style image.alt           underline image
+style image.html          image
+style underline           underline
+style html.tag            conceal
+style html.summary        'replace=▸ '
+style html.nbsp           'replace= '
+style html.amp            replace=&
+style html.lt             replace=<
+style html.gt             replace=>
+style html.quot           'replace="'
+style html.copy           replace=©
+style html.dash           replace=—

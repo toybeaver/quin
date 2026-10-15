@@ -38,6 +38,16 @@ pub struct StyleAttrs {
     pub bg: Option<String>,
     /// Draw this text instead of the token (e.g. `•` for list markers).
     pub replace: Option<String>,
+    /// Lines inside a region with this scope get a bar on their left edge in
+    /// the theme color of this scope (quotes, callouts).
+    pub bar: Option<String>,
+    /// Lines inside a region with this scope are centered in the frame.
+    pub center: bool,
+    /// Lines inside a region with this scope are rows of a pipe table and are
+    /// aligned with the rows around them.
+    pub grid: bool,
+    /// The token is the path of an image to draw below the line.
+    pub image: bool,
 }
 
 #[derive(Debug)]
@@ -61,6 +71,9 @@ pub enum Rule {
         /// Rules that apply inside the region (indices into `Language::rules`).
         inner: Vec<usize>,
         embed: Option<Embed>,
+        /// The end match closes the region but is not part of it: its text is
+        /// highlighted again by the rules outside (`keep-end`).
+        keep_end: bool,
     },
 }
 

@@ -3,8 +3,10 @@
 //! Everything is drawn on the CPU into a `u32` framebuffer (0x00RRGGBB, what
 //! softbuffer expects) which the window then presents. No GPU needed.
 
+pub mod blocks;
 pub mod font;
 pub mod layout;
+pub mod png;
 pub mod ui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]

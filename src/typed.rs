@@ -232,6 +232,7 @@ fn reload(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
     let fresh = crate::buffer::Buffer::open(buffer.id, &path, registry).map_err(|e| e.to_string())?;
     *buffer = fresh;
     view.selection = view.selection.clamp(buffer.len_chars());
+    ed.images.clear();
     ed.set_message("reloaded");
     Ok(())
 }

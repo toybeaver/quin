@@ -12,7 +12,7 @@ use crate::frame::{Dir, Node, Tab, View, ViewId};
 use crate::history::Transaction;
 use crate::keymap::{Key, KeyCode, KeyNode, Keymap, Keymaps};
 use crate::picker::{Picker, Prompt};
-use crate::render::Rect;
+use crate::render::{Color, Rect};
 use crate::selection::{Range, Selection};
 use crate::syntax::Registry;
 use crate::syntax::highlight::Highlighter;
@@ -97,6 +97,18 @@ pub struct StyleTable {
     pub styles: Vec<Style>,
     /// Replacement text per scope (`style list.marker replace=•`).
     pub replacements: Vec<Option<String>>,
+    /// Whole-line rendering per scope (`bar=`, `center`, `grid`, `image`).
+    pub lines: Vec<LineStyle>,
+}
+
+/// How a scope changes the lines it appears on, beyond the style of its text.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LineStyle {
+    /// Color of a bar on the left edge of the line.
+    pub bar: Option<Color>,
+    pub center: bool,
+    pub grid: bool,
+    pub image: bool,
 }
 
 pub struct Editor {
@@ -144,6 +156,8 @@ pub struct Editor {
     /// A frame floating in the middle of the window (the commit message); it
     /// has the focus while it exists.
     pub float: Option<ViewId>,
+    /// Images shown in Markdown buffers.
+    pub images: crate::images::Images,
 
     /// Frame rectangles of the current tab from the last draw (for mouse and
     /// window navigation).
@@ -217,6 +231,7 @@ impl Editor {
             git: crate::git::GitWatcher::new(),
             git_buffer: None,
             float: None,
+            images: Default::default(),
             frame_rects: Vec::new(),
             tab_rects: Vec::new(),
             wake: None,
@@ -914,12 +929,20 @@ fn lookup_key<'a>(mut map: &'a Keymap, pending: &[Key], key: Key) -> Option<&'a 
 pub fn build_styles(theme: &Theme, registry: &Registry) -> StyleTable {
     let styles = theme.style_table(registry);
     let mut replacements = vec![None; registry.scopes.len()];
+    let mut lines = vec![LineStyle::default(); registry.scopes.len()];
     for lang in &registry.languages {
         for (scope, attrs) in &lang.styles {
+            let i = scope.0 as usize;
             if let Some(text) = &attrs.replace {
-                replacements[scope.0 as usize] = Some(text.clone());
+                replacements[i] = Some(text.clone());
             }
+            if let Some(bar) = &attrs.bar {
+                lines[i].bar = Some(theme.color(bar));
+            }
+            lines[i].center |= attrs.center;
+            lines[i].grid |= attrs.grid;
+            lines[i].image |= attrs.image;
         }
     }
-    StyleTable { styles, replacements }
+    StyleTable { styles, replacements, lines }
 }
