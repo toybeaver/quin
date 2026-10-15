@@ -134,22 +134,37 @@ fn file_name(path: &Path) -> String {
 // ---------------------------------------------------------------------------
 
 pub fn activate(ed: &mut Editor) {
-    let Some(tree) = &ed.tree else { return };
-    if ed.buffer().is_modified() {
-        ed.set_error("the tree has unsaved edits: :write them or undo first");
-        return;
-    }
-    let line = ed.buffer().line_of(ed.view().cursor());
-    let Some(entry) = tree.entries.get(line).cloned() else { return };
+    let Some(entry) = entry_under_cursor(ed) else { return };
     if entry.is_dir {
-        let tree = ed.tree.as_mut().expect("tree");
-        if !tree.expanded.remove(&entry.path) {
-            tree.expanded.insert(entry.path);
-        }
-        render(ed);
+        toggle_directory(ed);
         return;
     }
     open_in_return_view(ed, &entry.path);
+}
+
+/// `tab`: fold or unfold the directory under the cursor (nothing on a file).
+pub fn toggle_directory(ed: &mut Editor) {
+    let Some(entry) = entry_under_cursor(ed) else { return };
+    if !entry.is_dir {
+        return;
+    }
+    let tree = ed.tree.as_mut().expect("tree");
+    if !tree.expanded.remove(&entry.path) {
+        tree.expanded.insert(entry.path);
+    }
+    render(ed);
+}
+
+/// The entry on the cursor line, unless the tree has unsaved edits (then the
+/// lines no longer match the entries).
+fn entry_under_cursor(ed: &mut Editor) -> Option<Entry> {
+    let tree = ed.tree.as_ref()?;
+    if ed.buffer().is_modified() {
+        ed.set_error("the tree has unsaved edits: :write them or undo first");
+        return None;
+    }
+    let line = ed.buffer().line_of(ed.view().cursor());
+    tree.entries.get(line).cloned()
 }
 
 /// Open a file in the frame the tree was opened from (or the first frame that

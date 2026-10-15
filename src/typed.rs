@@ -109,8 +109,10 @@ fn quit_force(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
 }
 
 fn write_quit(ed: &mut Editor, args: &[String]) -> Result<(), String> {
+    // Writing a commit message already closes its frame: nothing else quits.
+    let committing = ed.buffer().commit.is_some();
     write(ed, args)?;
-    if ed.float.is_none() && ed.buffer().commit.is_none() {
+    if !committing {
         quit(ed, &[])?;
     }
     Ok(())
@@ -273,7 +275,7 @@ fn sh(ed: &mut Editor, args: &[String]) -> Result<(), String> {
 
 const HELP_TREE: &str = "\
 The file tree (`A-e`, `:tree`) is a buffer: `ret` opens a file or folds a
-directory, and editing the text then `:write` renames, creates (a trailing `/`
+directory (`tab` folds directories too), and editing the text then `:write` renames, creates (a trailing `/`
 makes a directory), moves and deletes entries; deletes need a second `:write`.
 Git marks: changed files orange, new files green, `* ` before directories
 with changes inside.

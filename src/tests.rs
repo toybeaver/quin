@@ -466,6 +466,13 @@ fn tree_sidebar_opens_folds_and_edits_files() {
     assert_eq!(text(&ed), "src/\nnotes.md\n");
     keys(&mut ed, "ret");
     assert_eq!(text(&ed), "src/\n  lib.rs\nnotes.md\n", "ret on a directory expands it");
+    keys(&mut ed, "tab");
+    assert_eq!(text(&ed), "src/\nnotes.md\n", "tab folds it again");
+    keys(&mut ed, "tab");
+    assert_eq!(text(&ed), "src/\n  lib.rs\nnotes.md\n");
+    keys(&mut ed, "j tab k");
+    assert_eq!(text(&ed), "src/\n  lib.rs\nnotes.md\n", "tab on a file does nothing");
+    assert!(ed.buffer().tree);
     keys(&mut ed, "j ret");
     assert!(!ed.buffer().tree, "a file opens in the other frame");
     assert_eq!(text(&ed), "lib");
@@ -776,7 +783,27 @@ fn git_status_marks_the_tree_and_the_status_line() {
     let status = text(&ed);
     assert!(status.contains("Staged changes (1)\n> modified     sub/keep.rs\n"), "the hunk is staged: {status}");
     assert!(!status.contains("Unstaged changes"), "{status}");
-    keys(&mut ed, "/ text:more.txt ret s");
+    // s on a section heading stages (or unstages) everything under it.
+    keys(&mut ed, "/ text:Untracked ret s");
+    for _ in 0..300 {
+        ed.poll_git(false);
+        if text(&ed).contains("Staged changes (3)") && !ed.git.in_flight() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(text(&ed).contains("> new file     more.txt") && text(&ed).contains("> new file     new.txt"), "{}", text(&ed));
+    assert!(!text(&ed).contains("Untracked files"), "{}", text(&ed));
+    keys(&mut ed, "/ text:Staged space text:changes ret s");
+    for _ in 0..300 {
+        ed.poll_git(false);
+        if !text(&ed).contains("Staged changes") && !ed.git.in_flight() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(text(&ed).contains("Untracked files (2)") && text(&ed).contains("Unstaged changes (1)"), "everything unstaged: {}", text(&ed));
+    keys(&mut ed, "/ text:Unstaged ret s / text:more.txt ret s");
     for _ in 0..300 {
         ed.poll_git(false);
         if text(&ed).contains("Staged changes (2)") && !ed.git.in_flight() {
@@ -784,7 +811,7 @@ fn git_status_marks_the_tree_and_the_status_line() {
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    assert!(text(&ed).contains("> new file     more.txt"), "an untracked file is staged whole: {}", text(&ed));
+    assert!(text(&ed).contains("> new file     more.txt"), "{}", text(&ed));
     keys(&mut ed, "space l");
     assert_eq!((ed.tabs.len(), ed.tab_index), (2, 1), "space l goes back to the status tab");
     // c c opens a floating commit message; :write commits it.
@@ -792,9 +819,10 @@ fn git_status_marks_the_tree_and_the_status_line() {
     assert!(ed.float.is_some() && ed.mode == Mode::Insert, "{:?}", ed.message);
     assert_eq!(ed.buffer().commit, Some(false));
     assert!(text(&ed).contains("# Changes to be committed:\n") && text(&ed).contains("#\tmodified:   sub/keep.rs\n"), "{}", text(&ed));
-    keys(&mut ed, "text:Stage space text:things esc : text:write ret");
+    keys(&mut ed, "text:Stage space text:things esc : text:write-quit ret");
     assert!(ed.float.is_none(), "{:?}", ed.message);
-    assert!(ed.buffer().git, "back in the status buffer");
+    assert!(ed.buffer().git, "back in the status buffer: write-quit only left the commit frame");
+    assert_eq!(ed.tabs.len(), 2);
     let subject = git(&dir, &["log", "-1", "--pretty=%s"]).unwrap();
     assert_eq!(String::from_utf8_lossy(&subject.stdout).trim(), "Stage things");
     for _ in 0..300 {

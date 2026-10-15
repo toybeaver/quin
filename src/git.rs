@@ -210,6 +210,8 @@ pub enum Section {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Line {
     Plain,
+    /// A section heading: `s` stages or unstages everything under it.
+    Section(Section),
     File {
         section: Section,
         path: PathBuf,
@@ -445,7 +447,7 @@ pub fn status_text(
         if entries.is_empty() {
             continue;
         }
-        push(&format!("{title} ({})", entries.len()), Line::Plain);
+        push(&format!("{title} ({})", entries.len()), Line::Section(section));
         for (entry, word) in entries {
             let key = (section, entry.path.clone());
             let marker = if expanded.contains(&key) { "v" } else { ">" };
@@ -564,7 +566,7 @@ pub fn activate(ed: &mut Editor) {
     let (path, line) = match line_under_cursor(ed) {
         Line::File { path, .. } => (path, None),
         Line::Hunk { path, line, .. } => (path, Some(line)),
-        Line::Plain => return,
+        Line::Plain | Line::Section(_) => return,
     };
     let leaves = ed.root().leaves();
     let existing = ed.git_buffer.as_ref().and_then(|s| s.file_view).filter(|v| leaves.contains(v));
@@ -610,7 +612,7 @@ pub fn close_file_view(ed: &mut Editor) -> bool {
 pub fn toggle_diff(ed: &mut Editor) {
     let key = match line_under_cursor(ed) {
         Line::File { section, path } | Line::Hunk { section, path, .. } => (section, path),
-        Line::Plain => return,
+        Line::Plain | Line::Section(_) => return,
     };
     if let Some(status) = &mut ed.git_buffer
         && !status.expanded.remove(&key)
@@ -620,10 +622,27 @@ pub fn toggle_diff(ed: &mut Editor) {
     render_status(ed);
 }
 
-/// `s` on a file or hunk: stage it (unstage it in the staged section).
+/// `s` on a file or hunk: stage it (unstage it in the staged section). On a
+/// section heading, every file of the section.
 pub fn stage(ed: &mut Editor) {
-    let Some(root) = ed.git.state.as_ref().map(|s| s.root.clone()) else { return };
+    let Some(state) = ed.git.state.clone() else { return };
+    let root = state.root.clone();
     let (ok, output) = match line_under_cursor(ed) {
+        Line::Section(section) => {
+            let paths: Vec<String> = state
+                .entries
+                .iter()
+                .filter(|e| match section {
+                    Section::Untracked => e.untracked(),
+                    Section::Unstaged => e.unstaged(),
+                    Section::Staged => e.staged(),
+                })
+                .map(|e| e.path.to_string_lossy().into_owned())
+                .collect();
+            let mut args: Vec<&str> = if section == Section::Staged { vec!["restore", "--staged", "--"] } else { vec!["add", "--"] };
+            args.extend(paths.iter().map(String::as_str));
+            run_git(&root, &args, None)
+        }
         Line::File { section: Section::Staged, path } => run_git(&root, &["restore", "--staged", "--", &path.to_string_lossy()], None),
         Line::File { path, .. } | Line::Hunk { section: Section::Untracked, path, .. } => {
             run_git(&root, &["add", "--", &path.to_string_lossy()], None)

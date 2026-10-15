@@ -107,7 +107,7 @@ a key repeats it (`3w`, `10j`). `:help` opens the same list inside the editor.
 | `C-o` `C-i` | jump backward / forward in the jump list |
 | `%` | select the whole buffer |
 | `C-=` `C-+` / `C--` | bigger / smaller font (any mode) |
-| `ret` | in the tree sidebar: open the file or fold the directory |
+| `ret` | in the tree sidebar: open the file or fold the directory; `tab` folds directories only |
 | `gg` / `ge` | file start / file end (`3gg` goes to line 3) |
 | `gh` `gl` `gs` | line start / last character / first non-blank character |
 | `gn` `gp` | next / previous buffer |
@@ -214,8 +214,8 @@ type (at most 2000), with the match highlighted. `ret` jumps to the line.
 `A-e` or `:tree` toggles a sidebar on the right listing the working
 directory. It is a buffer like any other, in the spirit of oil.nvim:
 
-- `ret` on a directory folds or unfolds it; `ret` on a file opens it in the
-  frame the tree was opened from (the tree stays open).
+- `ret` on a directory folds or unfolds it (`tab` does too); `ret` on a file
+  opens it in the frame the tree was opened from (the tree stays open).
 - Edit the text to change the file system, then `:write`: a changed name
   renames, a new line creates (a trailing `/` makes a directory, indentation
   of two spaces per level puts it inside the directory above), a line moved
@@ -278,7 +278,7 @@ changed." on a clean tree. Inside it:
 |---|---|
 | `ret` | open the file (at the hunk's line) in a read-only preview split on the right, which the buffer keeps reusing, and move into it |
 | `tab` | fold or unfold the diff of the file under the cursor |
-| `s` | stage the file or the single hunk under the cursor; in the staged section, unstage it |
+| `s` | stage the file or the single hunk under the cursor, or every file of a section when on its heading; in the staged section, unstage |
 | `c c` / `c a` | commit the staged changes / amend the last commit: a commit message opens in a floating frame, prefilled like `git commit` does; `:write` commits, `:quit` (or an empty message) cancels |
 | `esc` | close the preview split |
 
