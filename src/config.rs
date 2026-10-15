@@ -190,12 +190,7 @@ fn unquote(value: &str) -> &str {
 }
 
 fn expand_home(path: &str) -> PathBuf {
-    if let Some(rest) = path.strip_prefix("~/")
-        && let Some(home) = std::env::var_os("HOME")
-    {
-        return PathBuf::from(home).join(rest);
-    }
-    PathBuf::from(path)
+    crate::files::expand_home(path)
 }
 
 #[cfg(test)]

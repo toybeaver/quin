@@ -11,6 +11,7 @@ mod editor;
 mod files;
 mod frame;
 mod history;
+mod install;
 mod keymap;
 mod movement;
 mod overlays;
@@ -33,7 +34,7 @@ use std::sync::{Arc, Mutex};
 
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey};
 use winit::window::{Window, WindowId};
@@ -53,6 +54,7 @@ usage:
   quin convert textmate <grammar.json> [out.syn]
   quin convert treesitter <name> <highlights.scm> [out.syn]
   quin --screenshot <out.ppm> [--size WxH] [--keys \"<keys>\"] [FILE ...]
+  quin install                         copy this binary to ~/.local/bin and add a desktop entry
   quin --help | --version
 
 Press `:` inside the editor for the command palette, or `:help` for all keys.";
@@ -66,6 +68,13 @@ fn main() {
         }
         Some("--version") | Some("-V") => {
             println!("quin {}", env!("CARGO_PKG_VERSION"));
+            return;
+        }
+        Some("install") => {
+            if let Err(err) = install::run_cli() {
+                eprintln!("quin: {err}");
+                std::process::exit(1);
+            }
             return;
         }
         Some("convert") => {
@@ -403,6 +412,8 @@ impl ApplicationHandler<()> for App {
         }
         let attributes = Window::default_attributes().with_title("quin").with_inner_size(LogicalSize::new(1100.0, 750.0));
         let window = Rc::new(event_loop.create_window(attributes).expect("create window"));
+        // Input methods and compositor-side dead keys deliver text through IME commits.
+        window.set_ime_allowed(true);
         let context = softbuffer::Context::new(window.clone()).expect("softbuffer context");
         let surface = softbuffer::Surface::new(&context, window.clone()).expect("softbuffer surface");
         self.scale = window.scale_factor();
@@ -445,6 +456,13 @@ impl ApplicationHandler<()> for App {
                     self.after_input(event_loop);
                 }
             }
+            WindowEvent::Ime(Ime::Commit(text)) => {
+                for c in text.chars() {
+                    self.editor.handle_key(Key::char(c));
+                }
+                self.close_requested = false;
+                self.after_input(event_loop);
+            }
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse = (position.x as i32, position.y as i32);
                 if self.drag.is_some() {
@@ -481,6 +499,19 @@ fn translate_key(event: &KeyEvent, modifiers: ModifiersState) -> Option<Key> {
     let alt = modifiers.alt_key();
     let meta = modifiers.super_key();
     let mut shift = modifiers.shift_key();
+    // What the key actually types, with dead keys composed: on an international
+    // layout `'` then `a` is `á` and `'` then space is `'`. The logical key
+    // would say "a" or "Space" there, so the typed text wins for plain keys.
+    if !ctrl
+        && !alt
+        && !meta
+        && let Some(text) = &event.text
+        && let mut chars = text.chars()
+        && let (Some(c), None) = (chars.next(), chars.next())
+        && !c.is_control()
+    {
+        return Some(Key::char(c));
+    }
     let code = match &event.logical_key {
         WinitKey::Named(named) => match named {
             NamedKey::Escape => KeyCode::Escape,

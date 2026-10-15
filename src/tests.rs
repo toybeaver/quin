@@ -629,3 +629,32 @@ fn palette_completes_paths_for_cd_and_open() {
     keys(&mut ed, "esc");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn capital_j_joins_lines_like_vim() {
+    let mut ed = editor_with("fn x() {\n    a();\n    b();\n}\n");
+    keys(&mut ed, "J");
+    assert_eq!(text(&ed), "fn x() { a();\n    b();\n}\n");
+    assert_eq!(cursor(&ed), 8, "the cursor sits on the joining space");
+    keys(&mut ed, "2 J");
+    assert_eq!(text(&ed), "fn x() { a(); b(); }\n");
+    let mut ed = editor_with("a\n\nb\nc\n");
+    keys(&mut ed, "J");
+    assert_eq!(text(&ed), "a\nb\nc\n", "an empty line joins without a space");
+    keys(&mut ed, "x x J");
+    assert_eq!(text(&ed), "a b\nc\n", "a two-line selection joins those two lines");
+    keys(&mut ed, "g g x x x J");
+    assert_eq!(text(&ed), "a b c\n", "a selection over all lines joins them all");
+    keys(&mut ed, "g e J");
+    assert_eq!(text(&ed), "a b c\n", "nothing below: nothing happens");
+}
+
+#[test]
+fn cd_and_open_expand_tilde() {
+    let home = std::env::var("HOME").unwrap();
+    let mut ed = editor_with("");
+    keys(&mut ed, ": text:cd space text:~ ret");
+    assert_eq!(ed.cwd, std::path::PathBuf::from(&home));
+    assert_eq!(crate::files::expand_home("~/x"), std::path::PathBuf::from(&home).join("x"));
+    assert_eq!(crate::files::expand_home("~x"), std::path::PathBuf::from("~x"));
+}

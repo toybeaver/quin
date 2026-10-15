@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon/icon.png" alt="quin" width="160"></p>
+
 # quin
 
 > [!WARNING]
@@ -40,6 +42,12 @@ cargo build --release
 ./target/release/quin ~/project       # a directory sets the working directory
 ./target/release/quin a.rs b.rs       # several files (buffers)
 ```
+
+`./target/release/quin install` copies the binary to `~/.local/bin` and, on
+Linux, adds a desktop entry and icon under `~/.local/share` so launchers show
+it. Run it again after rebuilding: it replaces the previous binary, entry and
+icon (some launchers keep showing the old icon until the next login). Paths in `:cd`, `:open` and
+`:write` understand `~`.
 
 Linux needs the usual `libxkbcommon` / Wayland or X11 client libraries at run
 time (they are loaded dynamically). The system clipboard uses `wl-copy`,
@@ -116,6 +124,7 @@ a key repeats it (`3w`, `10j`). `:help` opens the same list inside the editor.
 |---|---|
 | `x` | select the current line; again extends to the next line |
 | `X` | the same, growing upwards |
+| `J` | join the line below onto this one (vim style; a count or a multi-line selection joins more) |
 | `;` | collapse selections to cursors |
 | `A-;` | flip anchor and cursor |
 | `,` | keep only the primary selection |
@@ -224,6 +233,8 @@ directory. It is a buffer like any other, in the spirit of oil.nvim:
 | `backspace` / `del` | delete before / under the cursor (an empty pair `()` goes at once, leading spaces by indent level) |
 
 Brackets and quotes auto-pair (`auto-pairs off` in the config disables it).
+Dead keys and input methods work: on an international layout `'` then `a`
+types `á`, `'` then space types `'`.
 
 #### Terminal mode
 
@@ -412,6 +423,7 @@ header comment saying what it is for.
 | `src/frame.rs` | views, split tree, tabs |
 | `src/terminal.rs` | pty + terminal emulator (`vte`) |
 | `src/tree.rs` | the file tree sidebar and how its edits become file operations |
+| `src/install.rs` | `quin install`: binary, desktop entry and icon under the home directory |
 | `src/syntax/` | `.syn` format parser, highlighter, language registry, converters |
 | `src/theme.rs` | themes and style resolution |
 | `src/render/` | pixel painter, fonts (discovery, glyph cache, ligature shaping), line layout, drawing the UI |

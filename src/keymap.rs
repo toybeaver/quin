@@ -290,6 +290,7 @@ pub const NORMAL_KEYS: &[(&str, &str)] = &[
     ("%", "select_all"),
     ("x", "extend_line_below"),
     ("X", "extend_line_above"),
+    ("J", "join_lines"),
     (";", "collapse_selection"),
     ("A-;", "flip_selections"),
     (",", "keep_primary_selection"),

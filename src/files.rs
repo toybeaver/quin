@@ -129,6 +129,17 @@ pub struct GrepHit {
     pub matched: (usize, usize),
 }
 
+/// `~/x` and `~` resolved against the home directory; other paths unchanged.
+pub fn expand_home(text: &str) -> PathBuf {
+    if let Some(rest) = text.strip_prefix('~')
+        && (rest.is_empty() || rest.starts_with('/'))
+        && let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))
+    {
+        return PathBuf::from(home).join(rest.trim_start_matches('/'));
+    }
+    PathBuf::from(text)
+}
+
 /// Entries of one directory for the browsing file picker: directories first
 /// (with a trailing `/`), everything visible, sorted by name.
 pub fn list_dir(dir: &Path) -> Vec<(String, bool)> {

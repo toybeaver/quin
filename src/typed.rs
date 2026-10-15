@@ -1,6 +1,5 @@
 //! Commands typed in the command palette (`:write`, `:quit`, `:open`...).
 
-use std::path::Path;
 use std::process::{Command as Process, Stdio};
 
 use crate::editor::{Editor, Mode};
@@ -50,7 +49,8 @@ fn write(ed: &mut Editor, args: &[String]) -> Result<(), String> {
     if ed.buffer().tree {
         return crate::tree::write(ed);
     }
-    let path = args.first().map(Path::new);
+    let path = args.first().map(|p| crate::files::expand_home(p));
+    let path = path.as_deref();
     let buffer = ed.buffer_mut();
     let bytes = buffer.save(path).map_err(|e| e.to_string())?;
     let name = buffer.display_name();
@@ -107,11 +107,11 @@ fn open(ed: &mut Editor, args: &[String]) -> Result<(), String> {
             Ok(())
         }
         Some(path) => {
-            let path = Path::new(path);
+            let path = crate::files::expand_home(path);
             if path.is_dir() {
                 return change_directory(ed, &[path.to_string_lossy().into_owned()]);
             }
-            overlays::open_path(ed, path, None, crate::picker::OpenMode::Here);
+            overlays::open_path(ed, &path, None, crate::picker::OpenMode::Here);
             Ok(())
         }
     }
@@ -206,7 +206,7 @@ fn reload(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
 
 fn change_directory(ed: &mut Editor, args: &[String]) -> Result<(), String> {
     let target = match args.first() {
-        Some(dir) => crate::buffer::absolute(Path::new(dir)),
+        Some(dir) => crate::buffer::absolute(&crate::files::expand_home(dir)),
         None => std::env::var_os("HOME").map(std::path::PathBuf::from).ok_or("no HOME")?,
     };
     std::env::set_current_dir(&target).map_err(|e| format!("{}: {e}", target.display()))?;

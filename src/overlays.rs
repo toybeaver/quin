@@ -211,14 +211,8 @@ fn browse_prefix(query: &str) -> Option<String> {
     browsing.then(|| query[..=slash].to_string())
 }
 
-/// `~/x` and relative paths resolved to something `read_dir` understands.
 fn expand_path(text: &str) -> PathBuf {
-    if let Some(rest) = text.strip_prefix('~')
-        && let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))
-    {
-        return PathBuf::from(home).join(rest.trim_start_matches('/'));
-    }
-    PathBuf::from(text)
+    crate::files::expand_home(text)
 }
 
 /// Keep the file picker's items in step with its query: list the directory

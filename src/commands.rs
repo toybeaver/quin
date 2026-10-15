@@ -475,6 +475,38 @@ fn extend_line_above(ed: &mut Editor, ctx: Ctx) {
     });
 }
 
+/// `J`: pull the line below onto the end of the current line, vim style: one
+/// space in between and the next line's indentation dropped. A selection over
+/// several lines joins all of them; a count joins that many lines.
+fn join_lines(ed: &mut Editor, ctx: Ctx) {
+    let lines = selected_lines(ed);
+    let (view, buffer) = ed.current();
+    let text = &buffer.text;
+    let first = lines[0];
+    let last = if lines.len() > 1 { *lines.last().expect("non-empty") } else { first + ctx.n() };
+    let last = last.min(text.len_lines().saturating_sub(1));
+    let mut tx = Transaction::new();
+    for line in first..last {
+        let newline = movement::line_end(text, line);
+        let mut next = text.line_to_char(line + 1);
+        let next_end = movement::line_end(text, line + 1);
+        while next < next_end && matches!(text.char(next), ' ' | '\t') {
+            next += 1;
+        }
+        let current_empty = newline == text.line_to_char(line);
+        let next_empty = next == next_end;
+        let separator = if current_empty || next_empty { "" } else { " " };
+        tx.replace(newline, next, separator);
+    }
+    if tx.is_empty() {
+        return;
+    }
+    let cursor = tx.map(movement::line_end(text, first));
+    view.selection = Selection::point(cursor);
+    let selection = view.selection.clone();
+    ed.apply(tx, selection);
+}
+
 /// Grow every selection to the whole lines it touches (used by linewise paste).
 fn extend_to_line_bounds(ed: &mut Editor) {
     map_selection(ed, |text, r| {
@@ -1403,6 +1435,7 @@ commands! {
     select_all: "Select the whole buffer",
     extend_line_below: "Select the current line, extending downwards",
     extend_line_above: "Select the current line, extending upwards",
+    join_lines: "Join the line below onto this one (vim's J)",
     collapse_selection: "Collapse selections to cursors",
     flip_selections: "Swap anchor and cursor of each selection",
     keep_primary_selection: "Keep only the primary selection",
