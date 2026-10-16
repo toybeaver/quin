@@ -684,12 +684,15 @@ fn palette_completes_paths_for_cd_and_open() {
     keys(&mut ed, ": text:cd space");
     let Overlay::Picker(picker) = &ed.overlay else { panic!("no picker") };
     let labels: Vec<&str> = picker.items.iter().map(|i| i.label.as_str()).collect();
-    assert_eq!(labels, vec!["alpha/", "beta/"], "cd lists only directories");
+    assert_eq!(labels, vec!["./", "alpha/", "beta/"], "cd lists the directory itself, then only directories");
+    keys(&mut ed, "ret");
+    assert_eq!(ed.cwd, dir, "ret on an empty argument stays in the directory");
+    keys(&mut ed, ": text:cd space");
     keys(&mut ed, "text:al tab");
     let Overlay::Picker(picker) = &ed.overlay else { panic!("no picker") };
     assert_eq!(picker.query, "cd alpha/", "tab completes and goes on listing inside");
-    assert_eq!(picker.items.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(), vec!["inner/"]);
-    keys(&mut ed, "ret");
+    assert_eq!(picker.items.iter().map(|i| i.label.as_str()).collect::<Vec<_>>(), vec!["./", "inner/"]);
+    keys(&mut ed, "text:inn ret");
     assert!(matches!(ed.overlay, Overlay::None));
     assert_eq!(ed.cwd, dir.join("alpha").join("inner"), "ret runs cd with the chosen directory");
     keys(&mut ed, &format!(": text:cd space text:{} ret", dir.display()));

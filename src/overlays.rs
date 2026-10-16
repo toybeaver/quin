@@ -333,11 +333,14 @@ fn sync_command_arguments(ed: &mut Editor) {
         return;
     }
     let dir = if dir_text.is_empty() { ed.cwd.clone() } else { expand_path(&dir_text) };
-    let items: Vec<PickerItem> = crate::files::list_dir(&dir)
+    // `cd` lists the directory itself first, so `ret` on an empty argument
+    // stays here instead of going into the first entry (often `.git/`).
+    let here = dirs_only.then(|| PickerItem::new("./", "", ItemData::Argument(format!("{dir_text}."))));
+    let entries = crate::files::list_dir(&dir)
         .into_iter()
         .filter(|(_, is_dir)| *is_dir || !dirs_only)
-        .map(|(name, _)| PickerItem::new(name.clone(), "", ItemData::Argument(format!("{dir_text}{name}"))))
-        .collect();
+        .map(|(name, _)| PickerItem::new(name.clone(), "", ItemData::Argument(format!("{dir_text}{name}"))));
+    let items: Vec<PickerItem> = here.into_iter().chain(entries).collect();
     let Overlay::Picker(picker) = &mut ed.overlay else { return };
     picker.browse = Some(key);
     picker.needle_start = prefix_len + dir_text.len();

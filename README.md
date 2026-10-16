@@ -84,7 +84,8 @@ matching section. This file only gives the shape of things.
 `ret` runs the highlighted one, `tab` completes its name. Commands with
 arguments are typed in full (`:write notes.md`, `:cd ~/src`); while the
 argument of `cd`, `open` or `write` is typed, the list shows the entries of
-the directory typed so far. Typing a number (`:42`) jumps to that line.
+the directory typed so far. For `cd`, the first entry is `./` (that
+directory itself), so `ret` does not go into `.git/` by accident. Typing a number (`:42`) jumps to that line.
 
 The pieces, each of them an ordinary buffer:
 
