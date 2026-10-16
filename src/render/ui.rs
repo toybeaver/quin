@@ -80,6 +80,8 @@ impl<'a> Ui<'a> {
 /// sizes on the editor, which commands need.
 pub fn draw(ed: &mut Editor, ui: &mut Ui) {
     ed.images.poll();
+    ed.signs.poll();
+    ed.signs.forget_closed(&ed.buffers);
     let theme_bg = ed.theme.ui("ui.background", Color::BLACK);
     ui.painter.reset_clip();
     ui.painter.fill(theme_bg);
@@ -204,6 +206,7 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
         draw_terminal_view(ed, ui, view_id, rect, text_rect, focused);
         return;
     }
+    ed.signs.update(&ed.buffers[&buffer_id], ed.wake.as_ref());
 
     let text_color = ed.theme.ui("ui.text", Color::WHITE);
     let base = Style::plain(text_color);
@@ -251,6 +254,9 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
     // colours added, modified and deleted lines of the file against HEAD.
     let theme_bg = ed.theme.ui("ui.background", Color::BLACK);
     let marks = crate::git::marks_for(ed, view_id);
+    // Git signs on the left edge of the frame: added, modified, deleted.
+    let signs = ed.signs.marks(buffer_id).filter(|m| *m != &crate::signs::Marks::default()).cloned();
+    let sign_w = (cell_w / 4.0).round().max(2.0) as i32;
     if ed.buffers[&buffer_id].git {
         let hunk_bg = theme_bg.mix(ed.theme.color("diff.hunk"), 0.3);
         for visible in &mut layouts {
@@ -323,6 +329,19 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
             let x = rect.x + gutter - ui.text_width(&label) - cell_w as i32;
             let baseline_offset = (layout.row_height - cell_h).max(0.0) as i32;
             ui.text(x, text_y + baseline_offset, &label, color, false);
+        }
+        if let Some(signs) = &signs {
+            let height = layout.height as i32;
+            match signs.lines.get(line) {
+                Some(crate::signs::Sign::Added) => ui.painter.fill_rect(Rect::new(rect.x, y_px, sign_w, height), add_color),
+                Some(crate::signs::Sign::Modified) => ui.painter.fill_rect(Rect::new(rect.x, y_px, sign_w, height), modified_color),
+                None => {}
+            }
+            if signs.deleted_before.contains(line) {
+                // A wedge on the edge between this line and the one above.
+                let deleted = Rect::new(rect.x, y_px - sign_w / 2, (cell_w * 0.6) as i32, sign_w);
+                ui.painter.fill_rect(deleted, remove_color);
+            }
         }
 
         ui.painter.set_clip(text_rect);

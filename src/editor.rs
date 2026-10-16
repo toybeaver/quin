@@ -158,6 +158,8 @@ pub struct Editor {
     pub float: Option<ViewId>,
     /// Images shown in Markdown buffers.
     pub images: crate::images::Images,
+    /// Git signs (changed lines) of open files.
+    pub signs: crate::signs::Signs,
 
     /// Frame rectangles of the current tab from the last draw (for mouse and
     /// window navigation).
@@ -232,6 +234,7 @@ impl Editor {
             git_buffer: None,
             float: None,
             images: Default::default(),
+            signs: Default::default(),
             frame_rects: Vec::new(),
             tab_rects: Vec::new(),
             wake: None,
@@ -692,6 +695,13 @@ impl Editor {
         let finished = crate::git::poll_remote(self);
         self.git.poll_fetch(wake.clone(), finished || now);
         let changed = self.git.poll(&self.cwd.clone(), wake, finished || now);
+        if changed {
+            // A commit, pull or checkout may have moved HEAD.
+            self.signs.reload();
+        }
+        if std::mem::take(&mut self.git.refreshed) {
+            self.set_message("git status refreshed");
+        }
         if changed && self.tree.as_ref().is_some_and(|t| self.buffers.get(&t.buffer).is_some_and(|b| !b.is_modified())) {
             crate::tree::render(self);
         }

@@ -58,6 +58,9 @@ impl StatusEntry {
 pub struct GitState {
     pub root: PathBuf,
     pub branch: String,
+    /// The commit HEAD points to (empty before the first commit): a commit,
+    /// pull or checkout changes the state even when the status looks the same.
+    pub head: String,
     /// Every changed file, in git's order.
     pub entries: Vec<StatusEntry>,
     /// Absolute paths of changed files.
@@ -96,6 +99,12 @@ pub struct GitWatcher {
     queried_cwd: PathBuf,
     /// A refresh was asked for while one was running: run again right after.
     rerun: bool,
+    /// When `space l` asked for a refresh: the first answer from a query
+    /// started after that counts as a change even when it is the same, so
+    /// the status buffer is redrawn.
+    refresh_wanted: Option<Instant>,
+    /// That answer came: the editor says so once.
+    pub refreshed: bool,
     /// A pull or push running in the background.
     pub remote: Option<RemoteOp>,
     /// A `git fetch` running in the background, and when it started.
@@ -142,10 +151,18 @@ impl GitWatcher {
             last_started: None,
             queried_cwd: PathBuf::new(),
             rerun: false,
+            refresh_wanted: None,
+            refreshed: false,
             remote: None,
             fetch_pending: None,
             last_fetch: None,
         }
+    }
+
+    /// Query again now, and treat the answer as a change even if it is the
+    /// same (the caller polls with `now` right after).
+    pub fn request_refresh(&mut self) {
+        self.refresh_wanted = Some(Instant::now());
     }
 
     /// A query is running.
@@ -195,6 +212,14 @@ impl GitWatcher {
             match receiver.try_recv() {
                 Ok(state) => {
                     changed = state != self.state;
+                    // An answer to a query started before the request does not end it.
+                    if let (Some(wanted), Some(started)) = (self.refresh_wanted, self.last_started)
+                        && started >= wanted
+                    {
+                        changed = true;
+                        self.refresh_wanted = None;
+                        self.refreshed = true;
+                    }
                     self.state = state;
                     self.pending = None;
                 }
@@ -263,10 +288,11 @@ pub fn query(cwd: &Path) -> Option<GitState> {
         // Detached head (or no commit yet): show the short hash, or nothing.
         branch = git(cwd, &["rev-parse", "--short", "HEAD"]).map(|h| h.trim().to_string()).unwrap_or_else(|| "no commits".to_string());
     }
+    let head = git(cwd, &["rev-parse", "HEAD"]).map(|h| h.trim().to_string()).unwrap_or_default();
     let status = git(cwd, &["status", "--porcelain", "-z", "--untracked-files=all"]).unwrap_or_default();
     let (entries, files, dirs) = parse_status(&root, &status);
     let sync = count_sync(&root);
-    Some(GitState { root, branch, entries, files, dirs, sync })
+    Some(GitState { root, branch, head, entries, files, dirs, sync })
 }
 
 /// Parse `git status --porcelain -z`: `XY path\0`, with a second
@@ -474,7 +500,7 @@ fn describe(code: u8) -> &'static str {
 }
 
 /// Run git with stdin; returns (succeeded, stdout).
-fn run_git(cwd: &Path, args: &[&str], input: Option<&str>) -> (bool, String) {
+pub fn run_git(cwd: &Path, args: &[&str], input: Option<&str>) -> (bool, String) {
     let mut command = Command::new("git");
     // No terminal to answer prompts on: a remote asking for a password fails instead of hanging.
     command.arg("-C").arg(cwd).args(args).env("GIT_OPTIONAL_LOCKS", "0").env("GIT_TERMINAL_PROMPT", "0");
@@ -579,6 +605,11 @@ pub fn status_text(
 
 /// `space l`: show the status buffer in its own tab (reusing it when open).
 pub fn open_status(ed: &mut Editor) {
+    // Pressed again in the status buffer: refresh it from a new query.
+    if ed.git_buffer.as_ref().is_some_and(|s| s.buffer == ed.view().buffer) {
+        ed.git.request_refresh();
+        ed.set_message("refreshing git status");
+    }
     ed.poll_git(true);
     let existing = ed.git_buffer.as_ref().map(|s| s.buffer).filter(|id| ed.buffers.contains_key(id));
     let buffer = match existing {
@@ -978,7 +1009,7 @@ mod tests {
     fn status_text_lists_sections_or_says_nothing() {
         let root = PathBuf::from("/r");
         let (entries, files, dirs) = parse_status(&root, " M src/a.rs\0?? new.txt\0A  added.rs\0");
-        let state = GitState { root: root.clone(), branch: "main".into(), entries, files, dirs, sync: None };
+        let state = GitState { root: root.clone(), branch: "main".into(), head: String::new(), entries, files, dirs, sync: None };
         let none = (HashSet::new(), HashMap::new());
         let (text, lines) = status_text(Some(&state), &none.0, &none.1);
         assert!(text.starts_with("Head:  main\n"));

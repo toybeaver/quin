@@ -21,6 +21,7 @@ mod picker;
 mod render;
 mod search;
 mod selection;
+mod signs;
 mod syntax;
 mod terminal;
 #[cfg(test)]
@@ -247,13 +248,14 @@ fn run_headless(editor: &mut Editor, path: &Path, size: (u32, u32), keys: &str) 
         editor.process_terminals();
         editor.poll_search();
     }
-    // Draw once more so that images on screen start loading, then wait for them.
-    {
+    // Draw so that images and git signs on screen start loading, then wait
+    // for them; twice, since git signs first read the file at HEAD, then diff.
+    for _ in 0..2 {
         let painter = Painter::new(&mut pixels, size.0 as usize, size.1 as usize);
         let mut ui = Ui { painter, font: &mut font };
         render::ui::draw(editor, &mut ui);
+        wait_for_background(editor);
     }
-    wait_for_background(editor);
     editor.views.values_mut().for_each(|v| {
         v.anim = None;
         v.cursor_anim = None;
@@ -278,10 +280,12 @@ fn wait_for_background(editor: &mut Editor) {
         editor.poll_search();
         editor.poll_git(false);
         editor.images.poll();
+        editor.signs.poll();
         if editor.live_search.as_ref().is_none_or(|s| s.done)
             && !editor.git.in_flight()
             && editor.git.remote.is_none()
             && !editor.images.loading()
+            && !editor.signs.busy()
         {
             break;
         }
@@ -652,9 +656,10 @@ impl ApplicationHandler<()> for App {
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {
         let terminals = self.editor.process_terminals();
         let git = self.editor.poll_git(false);
+        let signs = self.editor.signs.poll();
         // A running pull or push ticks the window so its spinner keeps turning.
         let spinning = self.editor.git.remote.is_some();
-        if self.editor.poll_search() || terminals || git || spinning {
+        if self.editor.poll_search() || terminals || git || signs || spinning {
             self.request_frame();
         }
     }

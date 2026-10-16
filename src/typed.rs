@@ -229,7 +229,9 @@ fn reload(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
         (view, buffer)
     };
     let Some(path) = buffer.path.clone() else { return Err("buffer has no file".to_string()) };
-    let fresh = crate::buffer::Buffer::open(buffer.id, &path, registry).map_err(|e| e.to_string())?;
+    let mut fresh = crate::buffer::Buffer::open(buffer.id, &path, registry).map_err(|e| e.to_string())?;
+    // A new version number, so that whatever was worked out for the old text is redone.
+    fresh.version = buffer.version + 1;
     *buffer = fresh;
     view.selection = view.selection.clamp(buffer.len_chars());
     ed.images.clear();
@@ -327,7 +329,9 @@ The git status buffer (`space l`) lists untracked, unstaged and staged files.
 `ret` opens the file in a read-only preview split on the right, coloured
 against HEAD; `tab` unfolds its diff; `s` stages the file or hunk under the
 cursor (or unstages it in the staged section); `c c` / `c a` open a floating
-commit message: `:write` commits, `:quit` cancels; `p` pulls and `P` pushes.
+commit message: `:write` commits, `:quit` cancels; `p` pulls and `P` pushes;
+`space l` again refreshes the status. In every file, marks on the left edge
+show the lines changed since HEAD: green added, yellow modified, red deleted.
 
 ";
 

@@ -96,7 +96,12 @@ window, with buffers like neovim". Nothing more.
   (`Editor::float`; `:write` commits with `git commit -F -`, `:quit` cancels),
   `p` / `P` pull and push on a background thread (`git::run_remote`), and a
   `git fetch` every 10 minutes (and after each git action) on its own thread
-  feeds an ahead/behind block in the status line, shown only when non-zero. Nothing git-related may ever block or break the editor: every
+  feeds an ahead/behind block in the status line, shown only when non-zero.
+  `space l` in the status buffer forces a refresh. Every file gets git
+  signs on the left edge of its frame (`signs.rs`): its text, unsaved edits
+  included, is diffed against its HEAD version on a background thread after
+  each edit; the HEAD version is read again when HEAD or the status changes.
+  Nothing git-related may ever block or break the editor: every
   call runs off the UI thread with prompts disabled, and failures just mean
   stale information.
   `space` stays the leader key everywhere. The git buffer's keys live in

@@ -1169,3 +1169,121 @@ fn welcome_page_lists_ten_entries_and_never_scrolls() {
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// Run git in `dir` for a test; false when git is not installed.
+fn test_git(dir: &std::path::Path, args: &[&str]) -> bool {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"])
+        .args(args)
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
+/// Draw and wait until the git signs of the visible buffers are worked out.
+fn settle_signs(ed: &mut Editor, mut font: crate::render::font::FontSet) -> crate::render::font::FontSet {
+    for _ in 0..500 {
+        font = draw_frame(ed, font);
+        ed.poll_git(false);
+        if !ed.signs.busy() && !ed.git.in_flight() {
+            font = draw_frame(ed, font);
+            if !ed.signs.busy() {
+                break;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    font
+}
+
+#[test]
+fn git_signs_mark_lines_changed_since_head() {
+    use crate::signs::Sign;
+    let dir = std::env::temp_dir().join(format!("quin-signs-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir = dir.canonicalize().unwrap();
+    if !test_git(&dir, &["init", "-q"]) {
+        return; // no git on this machine
+    }
+    std::fs::write(dir.join("a.txt"), "one\ntwo\nthree\nfour\nfive\n").unwrap();
+    test_git(&dir, &["add", "."]);
+    test_git(&dir, &["commit", "-q", "-m", "init"]);
+    let mut ed = editor_with("");
+    keys(&mut ed, &format!(": text:cd space text:{} ret", dir.display()));
+    let id = ed.open_file(&dir.join("a.txt")).unwrap();
+    ed.show_buffer(id);
+    let font = settle_signs(&mut ed, crate::render::font::FontSet::builtin(14.0));
+    assert_eq!(ed.signs.marks(id), Some(&crate::signs::Marks::default()), "unchanged file: no signs");
+    // Unsaved edits count: change "two", add a line after "three", delete "five".
+    keys(&mut ed, "j e c text:TWO esc j o text:new esc j j x d");
+    assert_eq!(text(&ed), "one\nTWO\nthree\nnew\nfour\n");
+    let font = settle_signs(&mut ed, font);
+    let marks = ed.signs.marks(id).unwrap().clone();
+    assert_eq!(marks.lines.get(&1), Some(&Sign::Modified));
+    assert_eq!(marks.lines.get(&3), Some(&Sign::Added));
+    assert_eq!(marks.lines.len(), 2, "{marks:?}");
+    assert!(marks.deleted_before.contains(&4), "five was deleted at the end: {marks:?}");
+    // A file HEAD does not have is all new; after a commit the signs go.
+    std::fs::write(dir.join("b.txt"), "x\ny\n").unwrap();
+    let b = ed.open_file(&dir.join("b.txt")).unwrap();
+    ed.show_buffer(b);
+    let font = settle_signs(&mut ed, font);
+    assert_eq!(ed.signs.marks(b).unwrap().lines.len(), 2);
+    test_git(&dir, &["add", "."]);
+    test_git(&dir, &["commit", "-q", "-m", "more"]);
+    ed.poll_git(true);
+    let _ = settle_signs(&mut ed, font);
+    assert!(ed.signs.marks(b).unwrap().lines.is_empty(), "committed: no signs any more");
+    // Outside a repository: nothing.
+    let outside = std::env::temp_dir().join(format!("quin-signs-outside-{}.txt", std::process::id()));
+    std::fs::write(&outside, "z\n").unwrap();
+    let c = ed.open_file(&outside).unwrap();
+    ed.show_buffer(c);
+    let _ = settle_signs(&mut ed, crate::render::font::FontSet::builtin(14.0));
+    assert!(ed.signs.marks(c).is_none_or(|m| m.lines.is_empty()));
+    std::fs::remove_file(&outside).unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn space_l_in_the_status_buffer_refreshes_it() {
+    let dir = std::env::temp_dir().join(format!("quin-refresh-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir = dir.canonicalize().unwrap();
+    if !test_git(&dir, &["init", "-q"]) {
+        return;
+    }
+    std::fs::write(dir.join("a.txt"), "1\n").unwrap();
+    test_git(&dir, &["add", "."]);
+    test_git(&dir, &["commit", "-q", "-m", "init"]);
+    let mut ed = editor_with("");
+    keys(&mut ed, &format!(": text:cd space text:{} ret", dir.display()));
+    let wait = |ed: &mut Editor| {
+        for _ in 0..300 {
+            ed.poll_git(false);
+            if !ed.git.in_flight() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    };
+    keys(&mut ed, "space l");
+    wait(&mut ed);
+    assert!(text(&ed).contains("Nothing changed."), "{}", text(&ed));
+    // Changed behind the editor's back, then space l again in the buffer.
+    std::fs::write(dir.join("b.txt"), "new\n").unwrap();
+    keys(&mut ed, "space l");
+    assert_eq!(ed.message.as_ref().map(|m| m.text.as_str()), Some("refreshing git status"));
+    wait(&mut ed);
+    assert!(text(&ed).contains("> untracked    b.txt"), "{}", text(&ed));
+    assert_eq!(ed.message.as_ref().map(|m| m.text.as_str()), Some("git status refreshed"));
+    // Nothing changed this time: still refreshed, and said so.
+    ed.message = None;
+    keys(&mut ed, "space l");
+    wait(&mut ed);
+    assert_eq!(ed.message.as_ref().map(|m| m.text.as_str()), Some("git status refreshed"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -115,7 +115,11 @@ The pieces, each of them an ordinary buffer:
   read-only preview coloured against HEAD, `tab` unfolds its diff, `s` stages
   or unstages a file, a hunk or a whole section, `c c` / `c a` commit or
   amend through a floating message (`:write` commits, `:quit` cancels),
-  `p` / `P` pull and push. Nothing git-related ever blocks the editor.
+  `p` / `P` pull and push, and `space l` again refreshes the status. In
+  every file, a mark on the left edge of the frame shows the lines changed
+  since HEAD, unsaved edits included: green for added, yellow for modified,
+  and a red wedge where lines were deleted. Nothing git-related ever blocks
+  the editor.
 - **Welcome page.** Started without a file, quin shows the logo and the ten
   most recent entries: directories moved into with `:cd` and files opened by
   name. `ret` opens one; starting to type swaps the page for a scratch buffer.
