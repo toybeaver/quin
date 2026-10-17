@@ -1,11 +1,13 @@
 //! Line rendering that goes beyond single tokens, driven by the `grid`,
-//! `center` and `image` style attributes of syntax files: rows of pipe tables
-//! aligned into a grid, centered lines, and images below their line. All of
+//! `center`, `image` and `diagram` style attributes of syntax files: rows of
+//! pipe tables aligned into a grid, centered lines, images below their line,
+//! and Mermaid flowcharts in place of their source. All of
 //! it works on finished line layouts and only moves or hides cells, so drawing
 //! and mouse hit-testing (both read the layouts) still agree.
 
 use std::path::{Path, PathBuf};
 
+use crate::buffer::Buffer;
 use crate::editor::StyleTable;
 use crate::images::Images;
 use crate::render::layout::{LineLayout, wrap_rows};
@@ -36,6 +38,62 @@ pub struct TableRow {
     pub separator: bool,
     pub top: bool,
     pub bottom: bool,
+}
+
+// ---------------------------------------------------------------------------
+// Diagrams
+// ---------------------------------------------------------------------------
+
+/// How far from a line inside a Mermaid block its fences are looked for.
+const DIAGRAM_SCAN: usize = 2000;
+
+/// A Mermaid flowchart to draw, relative to its line. `key` finds the laid
+/// out diagram (or why it could not be drawn) in `Editor::diagrams`.
+#[derive(Debug, Clone)]
+pub struct PlacedDiagram {
+    pub key: String,
+    pub x: f32,
+    pub y: f32,
+}
+
+/// The fence lines around `line`, a line of a ```` ```mermaid ```` block.
+/// `None` while the block has no closing fence.
+pub fn diagram_block(buffer: &Buffer, line: usize) -> Option<(usize, usize)> {
+    let fence = |l: usize| buffer.line_text(l).trim_start().starts_with("```");
+    let opening = |l: usize| fence(l) && buffer.line_text(l).trim().len() > 3;
+    let start = if opening(line) { line } else { (line.saturating_sub(DIAGRAM_SCAN)..line).rev().find(|&l| fence(l))? };
+    let end =
+        if line > start && fence(line) { line } else { (start + 1..buffer.line_count().min(start + DIAGRAM_SCAN)).find(|&l| fence(l))? };
+    Some((start, end))
+}
+
+/// The cache key of a block's diagram: the font size it is laid out for and
+/// the source between the fences.
+pub fn diagram_key(buffer: &Buffer, (start, end): (usize, usize), cell_w: f32, cell_h: f32) -> String {
+    let source: Vec<String> = (start + 1..end).map(|l| buffer.line_text(l)).collect();
+    format!("{cell_w}x{cell_h}\n{}", source.join("\n"))
+}
+
+/// Draw a diagram of `size` on this line, centered in `width`: in place of
+/// its text when `fold` (the block's source is hidden), else below it.
+pub fn place_diagram(layout: &mut LineLayout, key: &str, (w, h): (f32, f32), width: f32, fold: bool) {
+    let y = if fold {
+        fold_away(layout);
+        IMAGE_GAP
+    } else {
+        layout.height + IMAGE_GAP
+    };
+    layout.diagram = Some(PlacedDiagram { key: key.to_string(), x: ((width - w) / 2.0).max(0.0), y });
+    layout.height = y + h + IMAGE_GAP;
+}
+
+/// Hide a line of a folded diagram block: no text, no height.
+pub fn fold_away(layout: &mut LineLayout) {
+    for cell in &mut layout.cells {
+        cell.hidden = true;
+    }
+    reflow(layout, None);
+    layout.height = 0.0;
 }
 
 // ---------------------------------------------------------------------------

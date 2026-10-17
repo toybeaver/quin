@@ -23,13 +23,15 @@ window, with buffers like neovim". Nothing more.
   views). The window is `winit`, pixels go through `softbuffer`, text is
   rasterized with `fontdue`.
 - **No LSP, no AI, no plugins, nothing fancy.** Syntax highlighting is the
-  ceiling, and it uses the editor's own `.syn` format (see `README.md` and
+  ceiling, and it uses the editor's own `.syn` format (documented at the top of
   `src/syntax/format.rs`). Converters from other formats (TextMate, tree-sitter
   `highlights.scm`) live in `src/syntax/convert.rs`.
 - **Few, light dependencies.** Every new crate needs a reason that the
   existing ones cannot cover. Do not add a dependency for convenience. Current
   set: winit, softbuffer, fontdue, rustybuzz (ligature shaping only), ropey,
-  regex, unicode-width, vte, portable-pty.
+  regex, unicode-width, vte, portable-pty. winit is pinned to
+  `=0.31.0-beta.3`: it is the first version with drag and drop on Wayland and
+  with the pointer position during a drag; move to 0.31.0 when it is out.
 - **Readable, simple code.** The owner reads and edits this code by hand.
   Plain functions, few abstractions, no clever generics or trait towers, but
   do not avoid an abstraction that genuinely removes repetition. Every file
@@ -45,8 +47,8 @@ window, with buffers like neovim". Nothing more.
   bundled iTerm2-Color-Schemes collection derived from terminal palettes in
   `theme.rs`.
 - Keybindings follow Helix, trimmed to the basics. The tables in
-  `src/keymap.rs` are the source of truth; the README mirrors them. When you
-  change a binding, change both.
+  `src/keymap.rs` are the source of truth; `:help` is generated from them.
+  Do not copy bindings anywhere else.
 - `:` opens a fuzzy command palette (like Zed or VS Code), not a vim-style
   command line. Keep the list of `:` commands short: write, write-quit,
   quit, quit!, open, new, terminal, tree, wrap, theme, language, reload, cd,
@@ -59,7 +61,19 @@ window, with buffers like neovim". Nothing more.
   the text plus one status line at the bottom; a tab bar appears only when
   there is more than one tab.
 - Yank, delete and paste always use the system clipboard. There are no
-  registers.
+  registers. In a buffer whose `.syn` has a `media` template (Markdown,
+  HTML), pasting an image (PNG/JPEG data, or a copied image file) saves it
+  next to the buffer's file and pastes the template instead; the clipboard
+  tools are asked for the image (`Clipboard::media`), no clipboard crate.
+  The tree only ever pastes text.
+- Drag and drop (`media.rs`, winit's data-transfer events in `main.rs`):
+  images dropped on a buffer with a `media` template are saved next to its
+  file and their tag goes on a new line below the hovered line; anything
+  dropped on the tree is copied into the directory under the pointer
+  (directories whole, taken names get `-2`, `-3`...); other files dropped
+  on a frame open there. While dragging, the target line (or the tree's
+  target directory) is highlighted and the status line says what a drop
+  would do. Drops always copy, never move.
 - The editor is not project bound: the file picker starts from the working
   directory but browses any path typed into it. Global search streams results
   from a background thread; never block the UI on a search.
@@ -75,7 +89,14 @@ window, with buffers like neovim". Nothing more.
   splitting, closing a frame or `space w 0` gives every frame an equal share.
 - Scrolling and the cursor animate (`View::scroll_to`, `View::cursor_position`);
   keep animations short, cheap and configurable, and never let them block
-  input.
+  input. The wheel moves the view and the cursor follows into it
+  (`View::cursor_follows`, applied in `draw_view`); never pull the view back
+  to the cursor after a wheel scroll, since lines with images or big
+  headings are taller than one row.
+- `g x` and Ctrl+click (Cmd+click on macOS) follow the link under the cursor
+  (`links.rs`): Markdown `[text](target)`, `src=`/`href=` in HTML tags, bare
+  URLs. URLs, images, PDFs and directories go to the system opener
+  (`files::open_with_system`); text files open in the editor.
 - Only input redraws at once. Animation frames and redraws for background
   work (terminal output, search results, git) are paced to one per
   `FRAME_INTERVAL` (`main.rs`). Never request a redraw in a loop. Work done
@@ -121,8 +142,15 @@ window, with buffers like neovim". Nothing more.
   lines (`bar=`, `center`, `grid` tables, `image`), which is how Markdown
   gets a light "rendered" look like Emacs' markdown-mode: tables, callouts,
   images and inline HTML included. Line-level rendering lives in
-  `render/blocks.rs`; images are PNG only, decoded by the small decoder in
-  `render/png.rs` and loaded off the UI thread by `images.rs`.
+  `render/blocks.rs`; images are PNG or JPEG, decoded by the small
+  hand-written decoders in `render/png.rs` and `render/jpeg.rs` (no image
+  crate) and loaded off the UI thread by `images.rs`. ```` ```mermaid ````
+  blocks (a region with the `diagram` style) are drawn as flowcharts: the
+  block folds into the diagram while the cursor is outside it and shows its
+  source, with the diagram below, while the cursor is inside.
+  `render/mermaid.rs` parses the flowchart syntax and lays it out in layers
+  (no other diagram types yet); the result is cached by source in
+  `Editor::diagrams`, so frames only paint it.
 
 ## How to verify changes
 
@@ -140,5 +168,14 @@ change: they replay key sequences through the real dispatcher.
 
 ## When done
 
-Update `README.md` (features, keybinding tables, commands, limitations) so it
-matches the code, and keep this file current if a rule changes.
+Keep this file current if a rule changes.
+
+**Do not update `README.md`.** The owner wants it short and easy to read:
+logo, warning, a summary, "What is this project" and "How to use" (the basic
+keys and the command line arguments). Nothing more: no features list, no
+keybinding tables or command lists beyond those few basics, no configuration
+or syntax reference, no code structure, no limitations. Keys and commands are
+in `:help`, generated from `src/keymap.rs` and `src/typed.rs`; the syntax
+format is documented in `src/syntax/format.rs`. Change the README only when
+the owner asks for it, or when the command line arguments (`USAGE` in
+`main.rs`) change.

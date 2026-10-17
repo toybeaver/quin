@@ -271,7 +271,6 @@ impl Picker {
 pub enum PromptKind {
     Search { reverse: bool, extend: bool },
     SelectRegex,
-    Shell,
 }
 
 #[derive(Debug, Clone)]
@@ -393,7 +392,7 @@ mod tests {
 
     #[test]
     fn prompt_editing() {
-        let mut p = Prompt::new(PromptKind::Shell, "sh:", Selection::point(0), 0);
+        let mut p = Prompt::new(PromptKind::SelectRegex, "select:", Selection::point(0), 0);
         for c in "héllo".chars() {
             p.handle_key(Key::char(c));
         }

@@ -14,6 +14,9 @@
 //! block-comment /* */
 //! indent        4 spaces              # or: `indent tabs`
 //! auto-pairs    () [] {} "" ''
+//! media         '<img src="{path}" />'
+//!                                     # what a dropped or pasted PNG/JPEG image
+//!                                     # becomes; the file is saved next to the text
 //!
 //! keywords <scope> word word ...      # words highlighted with <scope>
 //! match    <scope> <regex> [N:<scope> ...]
@@ -23,7 +26,7 @@
 //!
 //! style    <scope> [bold] [italic] [underline] [strike] [conceal]
 //!                  [size=1.4] [bg=<scope>] [replace=<text>]
-//!                  [bar=<scope>] [center] [grid] [image]
+//!                  [bar=<scope>] [center] [grid] [image] [diagram]
 //! ```
 //!
 //! `keep-end` closes the region where the end pattern matches without making
@@ -33,7 +36,9 @@
 //! `bar`, `center` and `grid` act on whole lines and apply to region scopes:
 //! every line the region covers gets a colored bar on its left edge, is
 //! centered, or is aligned as a row of a `|` pipe table. `image` marks a token
-//! that holds the path of an image to show below its line.
+//! that holds the path of an image to show below its line. `diagram` marks a
+//! region whose inner lines are a Mermaid flowchart: it is drawn in place of
+//! the region, which shows as text again while the cursor is inside it.
 //!
 //! Rules are tried in order at every position; the earliest match wins, ties go
 //! to the rule listed first. Regexes use Rust's `regex` syntax (no lookaround or
@@ -81,6 +86,13 @@ pub fn parse(source: &str, scopes: &mut Scopes) -> Result<Language, String> {
                         Some((chars.next()?, chars.next()?))
                     })
                     .collect();
+            }
+            "media" => {
+                let template = rest.first().ok_or_else(|| err("media needs a template"))?;
+                if !template.contains("{path}") {
+                    return Err(err("the media template needs `{path}`"));
+                }
+                lang.media = Some(template.clone());
             }
             "keywords" => {
                 if rest.len() < 2 {
@@ -220,6 +232,7 @@ fn parse_style(args: &[String]) -> Result<StyleAttrs, String> {
             "center" => attrs.center = true,
             "grid" => attrs.grid = true,
             "image" => attrs.image = true,
+            "diagram" => attrs.diagram = true,
             _ => match arg.split_once('=') {
                 Some(("size", v)) => attrs.size = Some(v.parse().map_err(|_| format!("bad size `{v}`"))?),
                 Some(("bg", v)) => attrs.bg = Some(v.to_string()),
@@ -280,6 +293,7 @@ mod tests {
 name demo
 extensions dm
 line-comment //
+media '![]({path})'
 keywords keyword if else
 match number \\d+
 region comment /\\* \\*/
@@ -289,6 +303,8 @@ style heading bold size=1.5
         let mut scopes = Scopes::default();
         let lang = parse(source, &mut scopes).unwrap();
         assert_eq!(lang.name, "demo");
+        assert_eq!(lang.media.as_deref(), Some("![]({path})"));
+        assert!(parse("media nothing\n", &mut scopes).is_err(), "a template without {{path}} is refused");
         assert_eq!(lang.top.len(), 3);
         assert_eq!(lang.rules.len(), 4);
         match &lang.rules[2] {

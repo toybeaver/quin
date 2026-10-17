@@ -12,6 +12,7 @@ fn editor_with(text: &str) -> Editor {
     let config = Config { auto_pairs: true, ..Config::default() };
     let mut ed = Editor::new(config, Registry::load(None), Theme::builtin("dark").unwrap());
     ed.clipboard = crate::clipboard::Clipboard::in_memory();
+    ed.launched = Some(Vec::new());
     ed.buffer_mut().set_text(text);
     ed.buffer_mut().history = crate::history::History::new();
     let view = ed.view_mut();
@@ -488,13 +489,13 @@ fn tree_sidebar_opens_folds_and_edits_files() {
     keys(&mut ed, ".");
     assert_eq!(text(&ed), "src/\nnotes.md\n", ". hides them again");
     keys(&mut ed, "ret");
-    assert_eq!(text(&ed), "src/\n  lib.rs\nnotes.md\n", "ret on a directory expands it");
+    assert_eq!(text(&ed), "src/\n    lib.rs\nnotes.md\n", "ret on a directory expands it");
     keys(&mut ed, "tab");
     assert_eq!(text(&ed), "src/\nnotes.md\n", "tab folds it again");
     keys(&mut ed, "tab");
-    assert_eq!(text(&ed), "src/\n  lib.rs\nnotes.md\n");
+    assert_eq!(text(&ed), "src/\n    lib.rs\nnotes.md\n");
     keys(&mut ed, "j tab k");
-    assert_eq!(text(&ed), "src/\n  lib.rs\nnotes.md\n", "tab on a file does nothing");
+    assert_eq!(text(&ed), "src/\n    lib.rs\nnotes.md\n", "tab on a file does nothing");
     assert!(ed.buffer().tree);
     // S-ret makes the entry's directory the working directory; the tree follows.
     keys(&mut ed, "S-ret");
@@ -506,20 +507,20 @@ fn tree_sidebar_opens_folds_and_edits_files() {
     keys(&mut ed, &format!(": text:cd space text:{} ret", dir.display()));
     assert_eq!(text(&ed), "src/\nnotes.md\n", ":cd re-renders the tree too");
     keys(&mut ed, "g g ret");
-    assert_eq!(text(&ed), "src/\n  lib.rs\nnotes.md\n");
+    assert_eq!(text(&ed), "src/\n    lib.rs\nnotes.md\n");
     // `-` shows the parent without changing the working directory; reopening resets.
     let name = dir.file_name().unwrap().to_string_lossy().into_owned();
     keys(&mut ed, "-");
     assert_eq!(ed.cwd, dir, "cwd unchanged");
     let listing = text(&ed);
     assert!(
-        listing.contains(&format!("{name}/\n  src/\n    lib.rs\n  notes.md\n")),
+        listing.contains(&format!("{name}/\n    src/\n        lib.rs\n    notes.md\n")),
         "the directory we came from stays unfolded: {listing}"
     );
     keys(&mut ed, "A-e A-e");
     assert_eq!(text(&ed), "src/\nnotes.md\n", "reopened: back at the working directory");
     keys(&mut ed, "g g ret");
-    assert_eq!(text(&ed), "src/\n  lib.rs\nnotes.md\n");
+    assert_eq!(text(&ed), "src/\n    lib.rs\nnotes.md\n");
     keys(&mut ed, "j ret");
     assert!(!ed.buffer().tree, "a file opens in the other frame");
     assert_eq!(text(&ed), "lib");
@@ -542,11 +543,14 @@ fn tree_sidebar_opens_folds_and_edits_files() {
     // `o` on an unfolded directory starts the new line inside it, so a new
     // directory lands in src/ and src/'s files stay where they are.
     keys(&mut ed, "g g / text:src/ ret");
-    assert!(text(&ed).contains("src/\n  lib.rs\n"), "{}", text(&ed));
+    assert!(text(&ed).contains("src/\n    lib.rs\n"), "{}", text(&ed));
     keys(&mut ed, "o text:test/ esc : text:write ret");
     assert!(dir.join("src/test").is_dir(), "{:?}", ed.message);
     assert!(dir.join("src/lib.rs").is_file() && !dir.join("test").exists());
-    assert!(text(&ed).contains("src/\n  test/\n  lib.rs\n"), "{}", text(&ed));
+    assert!(text(&ed).contains("src/\n    test/\n    lib.rs\n"), "{}", text(&ed));
+    // `tab` in insert mode indents one level: the new entry goes inside src/.
+    keys(&mut ed, "g g / text:src/ ret A ret tab text:nested.rs esc : text:write ret");
+    assert!(dir.join("src/nested.rs").is_file(), "{:?}", ed.message);
     // Typed unindented between src/ and its children, the write is refused.
     keys(&mut ed, "g g / text:src/ ret A ret text:other/ esc : text:write ret");
     assert!(!dir.join("other").exists() && dir.join("src/lib.rs").is_file(), "{:?}", ed.message);
@@ -710,6 +714,38 @@ fn palette_completes_paths_for_cd_and_open() {
 }
 
 #[test]
+#[cfg(unix)]
+fn palette_runs_and_completes_shell_commands() {
+    let dir = std::env::temp_dir().join(format!("quin-sh-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("docs")).unwrap();
+    std::fs::write(dir.join("hello.txt"), "hi").unwrap();
+    let mut ed = editor_with("");
+    keys(&mut ed, &format!(": text:cd space text:{} ret", dir.display()));
+    let message = |ed: &Editor| ed.message.as_ref().map(|m| m.text.clone()).unwrap_or_default();
+    // `!` alone does not pick `quit!`: it starts a shell command, completed with programs.
+    keys(&mut ed, ": text:!");
+    let Overlay::Picker(picker) = &ed.overlay else { panic!("no picker") };
+    assert!(picker.items.iter().any(|i| i.label == "sh"), "programs from PATH are listed");
+    assert!(!picker.items.iter().any(|i| i.label == "quit!"));
+    keys(&mut ed, "ret");
+    assert!(matches!(ed.overlay, Overlay::Picker(_)), "ret on an empty command keeps the palette open");
+    // Later words complete paths; tab puts the highlighted entry in the line.
+    keys(&mut ed, "text:cat space text:hel tab");
+    let Overlay::Picker(picker) = &ed.overlay else { panic!("no picker") };
+    assert_eq!(picker.query, "!cat hello.txt");
+    keys(&mut ed, "ret");
+    assert!(matches!(ed.overlay, Overlay::None));
+    assert_eq!(message(&ed), "hi", "ret runs the line as typed");
+    // `sh` chosen from the list keeps the palette open on `sh `, quotes go to the shell untouched.
+    keys(&mut ed, ": text:sh ret");
+    let Overlay::Picker(picker) = &ed.overlay else { panic!("no picker") };
+    assert_eq!(picker.query, "sh ");
+    keys(&mut ed, "text:echo space text:\"a space space text:b\" ret");
+    assert_eq!(message(&ed), "a  b");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn capital_j_joins_lines_like_vim() {
     let mut ed = editor_with("fn x() {\n    a();\n    b();\n}\n");
     keys(&mut ed, "J");
@@ -791,7 +827,7 @@ fn git_status_marks_the_tree_and_the_status_line() {
     keys(&mut ed, "A-e");
     assert_eq!(text(&ed), "* sub/\nnew.txt\ntop.txt\n", "changed directories carry a marker");
     keys(&mut ed, "ret");
-    assert_eq!(text(&ed), "* sub/\n  keep.rs\nnew.txt\ntop.txt\n");
+    assert_eq!(text(&ed), "* sub/\n    keep.rs\nnew.txt\ntop.txt\n");
     keys(&mut ed, "G e O text:more.txt esc : text:write ret");
     assert!(dir.join("more.txt").is_file(), "editing a line with a marker still works: {:?}", ed.message);
     // The status buffer: its own tab, sections, ret opens the file.
@@ -1289,4 +1325,208 @@ fn space_l_in_the_status_buffer_refreshes_it() {
     wait(&mut ed);
     assert_eq!(ed.message.as_ref().map(|m| m.text.as_str()), Some("git status refreshed"));
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn markdown_pastes_images_and_the_tree_does_not() {
+    use crate::clipboard::Media;
+    let png: &[u8] = include_bytes!("../assets/icon/icon-256.png");
+    let dir = std::env::temp_dir().join(format!("quin-paste-{}", std::process::id()));
+    let elsewhere = std::env::temp_dir().join(format!("quin-paste-src-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("img")).unwrap();
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    std::fs::write(dir.join("doc.md"), "# Title\n").unwrap();
+    std::fs::write(dir.join("img/kept.png"), png).unwrap();
+    std::fs::write(elsewhere.join("logo.png"), png).unwrap();
+    let mut ed = editor_with("");
+    keys(&mut ed, &format!(": text:cd space text:{} ret", dir.display()));
+    keys(&mut ed, &format!(": text:open space text:{} ret", dir.join("doc.md").display()));
+    // Image data: saved next to the file, its tag pasted after the cursor.
+    ed.clipboard.internal_media = Some(Media::Bytes(png.to_vec()));
+    keys(&mut ed, "g g g l p");
+    let saved: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("image-") && n.ends_with(".png"))
+        .collect();
+    assert_eq!(saved.len(), 1, "{saved:?}");
+    assert_eq!(std::fs::read(dir.join(&saved[0])).unwrap(), png);
+    assert_eq!(text(&ed), format!("# Title<img src=\"{}\" />\n", saved[0]));
+    // A copied image file from elsewhere is copied in; one already beside the file is not.
+    keys(&mut ed, "u");
+    ed.clipboard.internal_media = Some(Media::File(elsewhere.join("logo.png")));
+    keys(&mut ed, "g g g l p");
+    assert!(text(&ed).contains("<img src=\"logo.png\" />") && dir.join("logo.png").is_file(), "{}", text(&ed));
+    keys(&mut ed, "u");
+    ed.clipboard.internal_media = Some(Media::File(dir.join("img/kept.png")));
+    keys(&mut ed, "g g g l p");
+    assert!(text(&ed).contains("<img src=\"img/kept.png\" />"), "{}", text(&ed));
+    // Plain text still pastes as text.
+    keys(&mut ed, "u");
+    ed.clipboard.copy("words").unwrap();
+    keys(&mut ed, "g g g l p");
+    assert_eq!(text(&ed), "# Titlewords\n");
+    // The tree takes text only, even with an image on the clipboard.
+    keys(&mut ed, "A-e");
+    assert!(ed.buffer().tree);
+    ed.clipboard.internal_media = Some(Media::Bytes(png.to_vec()));
+    keys(&mut ed, "g g p");
+    assert!(!text(&ed).contains("<img"), "{}", text(&ed));
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&elsewhere).unwrap();
+}
+
+#[test]
+fn dropping_files_on_markdown_and_on_the_tree() {
+    let png: &[u8] = include_bytes!("../assets/icon/icon-256.png");
+    let dir = std::env::temp_dir().join(format!("quin-drop-{}", std::process::id()));
+    let outside = std::env::temp_dir().join(format!("quin-drop-src-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    std::fs::create_dir_all(outside.join("folder")).unwrap();
+    std::fs::write(dir.join("doc.md"), "one\ntwo\n").unwrap();
+    std::fs::write(dir.join("sub/inner.txt"), "i").unwrap();
+    std::fs::write(outside.join("pic.png"), png).unwrap();
+    std::fs::write(outside.join("notes.txt"), "notes").unwrap();
+    std::fs::write(outside.join("folder/deep.txt"), "d").unwrap();
+    let mut ed = editor_with("");
+    keys(&mut ed, &format!(": text:cd space text:{} ret", dir.display()));
+    keys(&mut ed, &format!(": text:open space text:{} ret", dir.join("doc.md").display()));
+    let doc_view = ed.focused_view();
+    // Over Markdown, the hovered line lights up; the image goes below it.
+    let hover = crate::media::hover(&ed, doc_view, 0).unwrap();
+    assert_eq!(hover.line, Some(0));
+    crate::media::drop_files(&mut ed, doc_view, 0, vec![outside.join("pic.png")]);
+    assert_eq!(text(&ed), "one\n<img src=\"pic.png\" />\ntwo\n");
+    assert!(dir.join("pic.png").is_file(), "the image is saved beside the file");
+    // Image data (from a browser) works the same way.
+    crate::media::drop_image(&mut ed, doc_view, 2, png);
+    assert!(text(&ed).lines().nth(3).is_some_and(|l| l.starts_with("<img src=\"image-")), "{}", text(&ed));
+    // A file that is not an image opens.
+    crate::media::drop_files(&mut ed, doc_view, 0, vec![outside.join("notes.txt")]);
+    assert_eq!(text(&ed), "notes");
+    // The tree: dropped on sub/ (or on a file inside it) copies into sub/.
+    keys(&mut ed, "A-e");
+    let tree_view = ed.focused_view();
+    let sub_line = text(&ed).lines().position(|l| l == "sub/").unwrap();
+    let hover = crate::media::hover(&ed, tree_view, sub_line).unwrap();
+    assert_eq!(hover.line, Some(sub_line), "the target directory lights up");
+    assert!(hover.message.contains("sub/"), "{}", hover.message);
+    crate::media::drop_files(&mut ed, tree_view, sub_line, vec![outside.join("notes.txt"), outside.join("folder")]);
+    assert_eq!(std::fs::read_to_string(dir.join("sub/notes.txt")).unwrap(), "notes");
+    assert_eq!(std::fs::read_to_string(dir.join("sub/folder/deep.txt")).unwrap(), "d", "directories are copied whole");
+    assert!(text(&ed).contains("sub/\n    folder/\n    inner.txt\n    notes.txt\n"), "{}", text(&ed));
+    let inner_line = text(&ed).lines().position(|l| l == "    inner.txt").unwrap();
+    assert_eq!(crate::media::hover(&ed, tree_view, inner_line).unwrap().line, Some(sub_line));
+    crate::media::drop_files(&mut ed, tree_view, inner_line, vec![outside.join("notes.txt")]);
+    assert!(dir.join("sub/notes-2.txt").is_file(), "a taken name gets a number");
+    // Below the last line: the root.
+    let below = text(&ed).lines().count();
+    assert_eq!(crate::media::hover(&ed, tree_view, below).unwrap().line, None);
+    crate::media::drop_image(&mut ed, tree_view, below, png);
+    let images =
+        std::fs::read_dir(&dir).unwrap().filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().starts_with("image-")).count();
+    assert_eq!(images, 2, "image data dropped on the tree is saved in the root");
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&outside).unwrap();
+}
+
+#[test]
+fn the_wheel_scrolls_past_images_and_takes_the_cursor_along() {
+    let icon = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/icon/icon-256.png");
+    let mut text: String = (0..20).map(|i| format!("line {i}\n")).collect();
+    text.push_str(&format!("![logo]({})\n", icon.display()));
+    text.extend((21..60).map(|i| format!("line {i}\n")));
+    let (mut ed, font) = markdown_editor(&text);
+    ed.config.scroll_animation = 0;
+    for _ in 0..500 {
+        if ed.images.poll() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let mut font = draw_frame(&mut ed, font);
+    // From the end, the wheel goes up past the image: the view is not pulled
+    // back to the cursor, the cursor comes along to the last whole line.
+    keys(&mut ed, "g e");
+    font = draw_frame(&mut ed, font);
+    let wheel = |ed: &mut Editor, lines: isize| {
+        let view = ed.view_mut();
+        view.scroll_line = (view.scroll_line as isize - lines).clamp(0, 60) as usize;
+        view.cursor_follows = true;
+    };
+    for _ in 0..20 {
+        wheel(&mut ed, 3);
+        font = draw_frame(&mut ed, font);
+    }
+    assert_eq!(ed.view().scroll_line, 0, "the wheel reached the top");
+    assert!(ed.buffer().line_of(ed.view().cursor()) < 30, "the cursor followed");
+    // And back down past it, the cursor following to the first line.
+    for step in 1..=10 {
+        wheel(&mut ed, -3);
+        font = draw_frame(&mut ed, font);
+        assert_eq!(ed.view().scroll_line, step * 3);
+    }
+    assert_eq!(ed.buffer().line_of(ed.view().cursor()), 30);
+}
+
+#[test]
+fn g_x_follows_links() {
+    let dir = std::env::temp_dir().join(format!("quin-links-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("docs")).unwrap();
+    std::fs::write(dir.join("docs/other page.md"), "other\n").unwrap();
+    std::fs::write(dir.join("logo.png"), include_bytes!("../assets/icon/icon-256.png")).unwrap();
+    let readme = "See [other](docs/other%20page.md#top) and https://example.org/x.\n<img src=\"logo.png\" />\n[gone](missing.md)\nplain\n";
+    std::fs::write(dir.join("README.md"), readme).unwrap();
+    let mut ed = editor_with("");
+    keys(&mut ed, &format!(": text:cd space text:{} ret", dir.display()));
+    keys(&mut ed, &format!(": text:open space text:{} ret", dir.join("README.md").display()));
+    // A URL goes to the system, without the full stop after it.
+    keys(&mut ed, "g g / text:example ret g x");
+    assert_eq!(ed.launched, Some(vec!["https://example.org/x".to_string()]));
+    // An image is not text: the system shows it.
+    keys(&mut ed, "j g h g x");
+    assert_eq!(ed.launched.as_ref().unwrap().last().unwrap(), &dir.join("logo.png").to_string_lossy().to_string());
+    // A missing file says so; a line without a link too.
+    keys(&mut ed, "j g x");
+    assert!(ed.message.as_ref().is_some_and(|m| m.text.contains("not found")), "{:?}", ed.message);
+    keys(&mut ed, "j g x");
+    assert!(ed.message.as_ref().is_some_and(|m| m.text.contains("no link")), "{:?}", ed.message);
+    // A Markdown link to a text file opens it in the editor (anywhere on the link).
+    keys(&mut ed, "g g / text:other ret g x");
+    assert_eq!(text(&ed), "other\n");
+    assert_eq!(ed.buffer().path.as_deref(), Some(dir.join("docs/other page.md").as_path()));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn mermaid_blocks_fold_into_their_flowchart() {
+    let text = "top\n```mermaid\nflowchart TD\nA --> B\n```\nafter\n";
+    let (mut ed, font) = markdown_editor(text);
+    let cell_h = font.cell_h;
+    let diagram = match ed.diagrams.values().next() {
+        Some(Ok(diagram)) => diagram.clone(),
+        other => panic!("no diagram: {other:?}"),
+    };
+    assert_eq!(diagram.nodes.len(), 2);
+    // Folded: the opening fence line holds the diagram, the rest of the block
+    // takes no room, and "after" comes right below.
+    let after = text.find("after").unwrap();
+    let below = cell_h + 6.0 + diagram.height + 6.0 + cell_h / 2.0;
+    assert_eq!(char_at(&mut ed, &font, 0, below as i32), after);
+    let on_diagram = char_at(&mut ed, &font, 0, (cell_h + diagram.height / 2.0) as i32);
+    assert_eq!(ed.buffer().line_of(on_diagram), 1, "a click on the diagram lands on its block");
+    // With the cursor inside, the source shows (and the diagram below it).
+    keys(&mut ed, "j j j");
+    let font = draw_frame(&mut ed, font);
+    let row = |n: usize| (cell_h * (n as f32 + 0.5)) as i32;
+    for line in [3, 4] {
+        let at = char_at(&mut ed, &font, 0, row(line));
+        assert_eq!(ed.buffer().line_of(at), line);
+    }
+    let below = cell_h * 5.0 + 6.0 + diagram.height + 6.0 + cell_h / 2.0;
+    assert_eq!(char_at(&mut ed, &font, 0, below as i32), after);
+    // Other diagram types stay text, with the reason below them.
+    let text = "```mermaid\nsequenceDiagram\nA->>B: hi\n```\n";
+    let (ed, _) = markdown_editor(&format!("x\n{text}"));
+    assert!(ed.diagrams.values().any(|d| d.as_ref().is_err_and(|e| e.contains("only flowcharts"))));
 }

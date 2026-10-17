@@ -109,6 +109,7 @@ pub struct LineStyle {
     pub center: bool,
     pub grid: bool,
     pub image: bool,
+    pub diagram: bool,
 }
 
 pub struct Editor {
@@ -138,6 +139,14 @@ pub struct Editor {
     pub highlighter: Highlighter,
     pub config: Config,
     pub clipboard: Clipboard,
+    /// Files or an image dragged over the window: what a drop would do there.
+    pub drop_hover: Option<crate::media::DropHover>,
+    /// URLs and files handed to the system (`g x`); `None` launches them for
+    /// real, tests set `Some` to only record them.
+    pub launched: Option<Vec<String>>,
+    /// Mermaid flowcharts laid out for drawing, by `blocks::diagram_key`, or
+    /// why they cannot be drawn.
+    pub diagrams: HashMap<String, Result<crate::render::mermaid::Diagram, String>>,
     /// Pieces of the last yank, one per selection (the clipboard holds them
     /// joined with newlines).
     pub yanked: Vec<String>,
@@ -224,6 +233,9 @@ impl Editor {
             highlighter: Highlighter::new(),
             config,
             clipboard: Clipboard::new(),
+            drop_hover: None,
+            launched: None,
+            diagrams: HashMap::new(),
             yanked: Vec::new(),
             cwd,
             quit: false,
@@ -952,6 +964,7 @@ pub fn build_styles(theme: &Theme, registry: &Registry) -> StyleTable {
             lines[i].center |= attrs.center;
             lines[i].grid |= attrs.grid;
             lines[i].image |= attrs.image;
+            lines[i].diagram |= attrs.diagram;
         }
     }
     StyleTable { styles, replacements, lines }

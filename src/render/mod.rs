@@ -5,7 +5,9 @@
 
 pub mod blocks;
 pub mod font;
+pub mod jpeg;
 pub mod layout;
+pub mod mermaid;
 pub mod png;
 pub mod ui;
 
@@ -163,6 +165,59 @@ impl<'a> Painter<'a> {
 
     pub fn vline(&mut self, x: i32, y: i32, h: i32, color: Color) {
         self.fill_rect(Rect::new(x, y, 1, h), color);
+    }
+
+    /// Fill a polygon (any simple one, convex or not), row by row: each row
+    /// is filled between pairs of crossings with the outline.
+    pub fn fill_polygon(&mut self, points: &[(f32, f32)], color: Color) {
+        if points.len() < 3 {
+            return;
+        }
+        let top = points.iter().map(|p| p.1).fold(f32::MAX, f32::min).floor() as i32;
+        let bottom = points.iter().map(|p| p.1).fold(f32::MIN, f32::max).ceil() as i32;
+        let mut crossings = Vec::new();
+        for y in top.max(self.clip.y)..bottom.min(self.clip.bottom()) {
+            let sample = y as f32 + 0.5;
+            crossings.clear();
+            for i in 0..points.len() {
+                let (a, b) = (points[i], points[(i + 1) % points.len()]);
+                if (a.1 <= sample) != (b.1 <= sample) {
+                    crossings.push(a.0 + (sample - a.1) / (b.1 - a.1) * (b.0 - a.0));
+                }
+            }
+            crossings.sort_by(f32::total_cmp);
+            for [a, b] in crossings.as_chunks::<2>().0 {
+                let (x0, x1) = (a.round() as i32, b.round() as i32);
+                self.hline(x0, y, x1 - x0, color);
+            }
+        }
+    }
+
+    /// A straight line `width` pixels thick. With `dash`, it is drawn in
+    /// pieces that long with gaps as long between them.
+    pub fn line(&mut self, from: (f32, f32), to: (f32, f32), width: f32, dash: Option<f32>, color: Color) {
+        let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+        let length = (dx * dx + dy * dy).sqrt();
+        let size = width.round().max(1.0) as i32;
+        let half = (size - 1) / 2;
+        // Lines along an axis without dashes are one rectangle.
+        if dash.is_none() && (dx.abs() < 0.5 || dy.abs() < 0.5) {
+            let (x0, y0) = (from.0.min(to.0).round() as i32 - half, from.1.min(to.1).round() as i32 - half);
+            let (x1, y1) = (from.0.max(to.0).round() as i32 - half + size, from.1.max(to.1).round() as i32 - half + size);
+            self.fill_rect(Rect::new(x0, y0, x1 - x0, y1 - y0), color);
+            return;
+        }
+        let steps = length.ceil().max(1.0) as i32;
+        for i in 0..=steps {
+            let t = i as f32 / steps as f32;
+            if let Some(dash) = dash
+                && (t * length / dash) as i32 % 2 == 1
+            {
+                continue;
+            }
+            let (x, y) = (from.0 + dx * t, from.1 + dy * t);
+            self.fill_rect(Rect::new(x.round() as i32 - half, y.round() as i32 - half, size, size), color);
+        }
     }
 
     pub fn rect_outline(&mut self, rect: Rect, color: Color) {

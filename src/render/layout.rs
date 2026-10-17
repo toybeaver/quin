@@ -2,7 +2,7 @@
 //! Both drawing and mouse hit-testing go through this, so they always agree.
 
 use crate::editor::StyleTable;
-use crate::render::blocks::{PlacedImage, TableRow};
+use crate::render::blocks::{PlacedDiagram, PlacedImage, TableRow};
 use crate::render::font::{FontSet, GlyphId, LIGATURE_CHARS};
 use crate::syntax::highlight::Span;
 use crate::theme::Style;
@@ -49,6 +49,8 @@ pub struct LineLayout {
     pub images: Vec<PlacedImage>,
     /// Borders to draw when the line is a row of a table (`blocks.rs`).
     pub table: Option<TableRow>,
+    /// A Mermaid flowchart drawn on or below this line (`blocks.rs`).
+    pub diagram: Option<PlacedDiagram>,
 }
 
 impl LineLayout {
@@ -143,6 +145,7 @@ pub fn layout_line(
         text_y: 0.0,
         images: Vec::new(),
         table: None,
+        diagram: None,
     };
     let mut x = 0.0f32;
     let mut column = 0usize; // in base cells, for tab stops

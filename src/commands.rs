@@ -109,6 +109,10 @@ fn yank_selections(ed: &mut Editor) {
 /// What a paste inserts: the clipboard as one text, or one piece per cursor
 /// when it still holds the last yank and there are as many cursors as pieces.
 fn clipboard_values(ed: &mut Editor) -> Option<Vec<String>> {
+    // An image in a buffer that takes images: its tag is what gets pasted.
+    if let Some(tag) = crate::media::paste_text(ed) {
+        return Some(vec![tag]);
+    }
     let text = match ed.clipboard.paste() {
         Ok(text) => text,
         Err(err) => {
@@ -445,6 +449,22 @@ fn goto_file(ed: &mut Editor, _ctx: Ctx) {
             Err(err) => ed.set_error(err),
         },
         None => ed.set_error(format!("file not found: {name}")),
+    }
+}
+
+/// `g x` (and Ctrl+click): follow the link under the cursor, or the selected text.
+fn open_link(ed: &mut Editor, _ctx: Ctx) {
+    let (view, buffer) = ed.current();
+    let primary = view.selection.primary();
+    let line = buffer.line_of(primary.head);
+    let col = primary.head - buffer.line_start(line);
+    let target = crate::links::link_at(&buffer.line_text(line), col).or_else(|| {
+        let selected = primary.slice(&buffer.text);
+        (primary.from() + 1 < primary.to() && !selected.contains('\n')).then_some(selected)
+    });
+    match target {
+        Some(target) => crate::links::follow(ed, &target),
+        None => ed.set_error("no link under the cursor"),
     }
 }
 
@@ -1550,6 +1570,7 @@ commands! {
     goto_previous_buffer: "Go to the previous buffer",
     goto_last_modification: "Go to the last change",
     goto_file: "Open the file whose name is under the cursor",
+    open_link: "Open the link under the cursor (URL, Markdown link, src/href)",
     select_all: "Select the whole buffer",
     extend_line_below: "Select the current line, extending downwards",
     extend_line_above: "Select the current line, extending upwards",

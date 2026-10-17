@@ -1,12 +1,14 @@
 //! Images shown in Markdown buffers. Files are read and decoded on a
 //! background thread, kept by path, and scaled once to the size they are
-//! drawn at. Only local PNG files can be shown; anything else (remote URLs,
-//! other formats, broken files) fails quietly and the text stays as written.
+//! drawn at. Only local PNG and JPEG files can be shown; anything else
+//! (remote URLs, other formats, broken files) fails quietly and the text
+//! stays as written.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use crate::render::jpeg;
 use crate::render::png::{self, Image};
 use crate::terminal::WakeFn;
 
@@ -99,7 +101,9 @@ fn load(path: &Path) -> Option<Image> {
     if std::fs::metadata(path).ok()?.len() > MAX_FILE_BYTES {
         return None;
     }
-    let image = png::decode(&std::fs::read(path).ok()?)?;
+    let data = std::fs::read(path).ok()?;
+    // Each decoder checks the file's signature first, so trying both is cheap.
+    let image = png::decode(&data).or_else(|| jpeg::decode(&data))?;
     let longest = image.width.max(image.height);
     if longest <= MAX_SIDE {
         return Some(image);

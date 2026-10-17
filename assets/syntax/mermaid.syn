@@ -1,0 +1,22 @@
+# Mermaid diagrams — quin syntax definition. Highlights the source of
+# ```mermaid blocks in Markdown (which also draw flowcharts) and .mmd files.
+
+name          mermaid
+extensions    mmd mermaid
+line-comment  %%
+indent        4 spaces
+auto-pairs    () [] {} ""
+
+region comment  %%  $
+
+keywords keyword flowchart graph subgraph end direction classDef class style linkStyle click
+keywords keyword sequenceDiagram classDiagram stateDiagram erDiagram gantt pie journey gitGraph mindmap timeline
+keywords constant.builtin TD TB BT LR RL
+
+region string  '"'  '"'
+# Labels inside node brackets and on links.
+match string     '\|[^|]*\|'
+match operator   '<?(?:-{2,}|={2,}|-?\.+-|~{3,})(?:>|o\b|x\b)?'
+match operator   '&'
+match type       ':::[A-Za-z_][\w-]*'
+match punctuation '\b([A-Za-z_][\w-]*)[\[\(\{>]'   1:function

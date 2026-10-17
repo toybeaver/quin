@@ -9,7 +9,9 @@ use crate::picker::{ItemData, PickerItem, PickerKind};
 use crate::render::blocks::{self, Table, TableLine};
 use crate::render::font::FontSet;
 use crate::render::layout::{Cell, LineLayout, layout_line};
+use crate::render::mermaid::{self, Diagram, Head, Stroke};
 use crate::render::{Color, Painter, Rect};
+use crate::selection::{Range, Selection};
 use crate::syntax::highlight::{Frame, Highlighter, LineState, Span};
 use crate::syntax::{Registry, Rule};
 use crate::terminal::{Cell as TermCell, TermColor};
@@ -222,6 +224,8 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
     let secondary_cursor = ed.theme.ui("ui.cursor.secondary", cursor_color);
     let inactive_cursor = ed.theme.ui("ui.cursor.inactive", cursor_color);
     let table_color = ed.theme.color("table.border");
+    let error_color = ed.theme.ui("error", Color::WHITE);
+    let diagram_colors = DiagramColors::new(ed.theme.ui("ui.background", Color::BLACK), text_color);
 
     // Lay out visible lines; scroll down if the cursor line does not fit.
     let mut layouts = loop {
@@ -230,6 +234,26 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
         let view = &ed.views[&view_id];
         let cursor_line = ed.buffers[&buffer_id].line_of(view.cursor());
         let shown = layouts.iter().filter(|l| l.y + l.layout.height <= text_rect.h as f32).count();
+        // After a wheel scroll the cursor comes into the view (to its first or
+        // last whole line): lines are not all one row high (images, headings),
+        // so moving the view back to the cursor could undo the scroll.
+        if view.cursor_follows && !is_welcome {
+            let last = (first + shown.max(1) - 1).min(ed.buffers[&buffer_id].line_count() - 1);
+            let target = cursor_line.clamp(first, last.max(first));
+            let view = ed.views.get_mut(&view_id).expect("view");
+            view.cursor_follows = false;
+            if target != cursor_line {
+                let text = &ed.buffers[&buffer_id].text;
+                let primary = view.selection.primary();
+                let delta = target as isize - cursor_line as isize;
+                let (pos, col) = movement::move_vertically(text, primary.head, delta, primary.goal_col, tab_width);
+                let mut range = Range::point(pos);
+                range.goal_col = Some(col);
+                view.selection = Selection::single(range);
+                continue; // the cursor line may lay out differently (markers shown)
+            }
+        }
+        let view = &ed.views[&view_id];
         if focused && !is_welcome && cursor_line >= view.scroll_line + shown.max(1) && view.scroll_line < cursor_line {
             ed.views.get_mut(&view_id).expect("view").scroll_line += 1;
             continue;
@@ -313,9 +337,17 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
         if line_rect.y >= rect.bottom() {
             break;
         }
+        // A line folded into a diagram above it.
+        if layout.height <= 0.0 {
+            continue;
+        }
         ui.painter.set_clip(rect);
         if ed.config.cursorline && focused && *line == cursor_line && mode != Mode::Select {
             ui.painter.fill_rect(line_rect, cursorline_color);
+        }
+        // The line a drag would drop on (or the tree directory it would copy into).
+        if ed.drop_hover.as_ref().is_some_and(|h| h.view == view_id && h.line == Some(*line)) {
+            ui.painter.fill_rect(line_rect, primary_color);
         }
         // Gutter.
         if show_numbers {
@@ -449,6 +481,16 @@ fn draw_view(ed: &mut Editor, ui: &mut Ui, view_id: ViewId, rect: Rect, focused:
                 ui.painter.blit_rgba(x, y, pixels.width, pixels.height, &pixels.rgba);
             }
         }
+        if let Some(placed) = &layout.diagram {
+            let (x, y) = (origin_x + placed.x, y_px as f32 + placed.y);
+            match ed.diagrams.get(&placed.key) {
+                Some(Ok(diagram)) => draw_diagram(ui, diagram, (x, y), &diagram_colors),
+                Some(Err(message)) => {
+                    ui.text(x as i32, y as i32, message, error_color, false);
+                }
+                None => {}
+            }
+        }
 
         // Cursors.
         for (i, range) in selection.iter().enumerate() {
@@ -551,6 +593,7 @@ fn line_style(registry: &Registry, styles: &StyleTable, regions: &[Frame]) -> (L
         merged.bar = line.bar.or(merged.bar);
         merged.center |= line.center;
         merged.grid |= line.grid;
+        merged.diagram |= line.diagram;
         background = styles.styles[scope.0 as usize].bg.or(background);
     }
     (merged, background)
@@ -590,6 +633,7 @@ fn layout_visible_lines(
     let highlighter = &mut ed.highlighter;
     let styles = &ed.styles;
     let images = &mut ed.images;
+    let diagrams = &mut ed.diagrams;
     let wake = ed.wake.as_ref();
     let buffer = ed.buffers.get_mut(&buffer_id).expect("buffer");
     let dir = buffer.path.as_ref().and_then(|p| p.parent()).map(|p| p.to_path_buf()).unwrap_or_else(|| ed.cwd.clone());
@@ -602,6 +646,10 @@ fn layout_visible_lines(
     let mut spans: Vec<Span> = Vec::new();
     let mut state = None;
     let mut line = scroll_line;
+    // The Mermaid block being laid out: its fences and diagram key, and
+    // whether its diagram already went on a line of this pass.
+    let mut block: Option<(usize, usize, String)> = None;
+    let mut block_placed = false;
     while line < line_count && y < height {
         let text = buffer.line_text(line);
         spans.clear();
@@ -625,6 +673,49 @@ fn layout_visible_lines(
         }
         if line_style.center {
             blocks::center(&mut layout, width, reveal);
+        }
+        if line_style.diagram {
+            if block.as_ref().is_none_or(|(start, end, _)| line < *start || line > *end) {
+                block = blocks::diagram_block(buffer, line).map(|(start, end)| {
+                    let key = blocks::diagram_key(buffer, (start, end), font.cell_w, font.cell_h);
+                    (start, end, key)
+                });
+                block_placed = false;
+                if let Some((_, _, key)) = &block
+                    && !diagrams.contains_key(key)
+                {
+                    if diagrams.len() > 32 {
+                        diagrams.clear();
+                    }
+                    let source = key.split_once('\n').map(|(_, s)| s).unwrap_or("");
+                    diagrams.insert(key.clone(), crate::render::mermaid::render(source, font.cell_w, font.cell_h));
+                }
+            }
+            if let Some((start, end, key)) = &block {
+                // The source shows while the cursor is in the block, or when
+                // it cannot be drawn; the diagram (or the reason) then goes
+                // below the closing fence.
+                let editing = is_focused && (*start..=*end).contains(&cursor_line);
+                let size = match diagrams.get(key) {
+                    Some(Ok(diagram)) => Some((diagram.width, diagram.height)),
+                    _ => None,
+                };
+                match size {
+                    Some(size) if !editing => {
+                        if block_placed {
+                            blocks::fold_away(&mut layout);
+                        } else {
+                            blocks::place_diagram(&mut layout, key, size, width, true);
+                            block_placed = true;
+                        }
+                    }
+                    _ if line == *end => {
+                        let size = size.unwrap_or((width, font.cell_h));
+                        blocks::place_diagram(&mut layout, key, size, width, false);
+                    }
+                    _ => {}
+                }
+            }
         }
         let start = buffer.line_start(line);
         let h = layout.height;
@@ -1187,6 +1278,121 @@ pub fn terminal_cell_at(font: &FontSet, rect: Rect, px: i32, py: i32) -> (usize,
     let col = ((px - rect.x - gutter).max(0) as f32 / font.cell_w) as usize;
     let row = ((py - rect.y).max(0) as f32 / font.cell_h) as usize;
     (col, row)
+}
+
+// ---------------------------------------------------------------------------
+// Mermaid diagrams
+// ---------------------------------------------------------------------------
+
+/// Colors of a diagram, mixed from the theme's background and text so they
+/// suit any theme.
+struct DiagramColors {
+    node: Color,
+    border: Color,
+    line: Color,
+    text: Color,
+    group: Color,
+    group_border: Color,
+    label: Color,
+}
+
+impl DiagramColors {
+    fn new(background: Color, text: Color) -> DiagramColors {
+        DiagramColors {
+            node: background.mix(text, 0.12),
+            border: background.mix(text, 0.65),
+            line: background.mix(text, 0.7),
+            text,
+            group: background.mix(text, 0.05),
+            group_border: background.mix(text, 0.3),
+            label: background,
+        }
+    }
+}
+
+/// Draw a laid-out diagram with its top-left corner at `origin`.
+fn draw_diagram(ui: &mut Ui, diagram: &Diagram, origin: (f32, f32), colors: &DiagramColors) {
+    let at = |p: (f32, f32)| (p.0 + origin.0, p.1 + origin.1);
+    let cell_w = ui.font.cell_w;
+    let cell_h = ui.font.cell_h;
+    // Lines of text centered on a point.
+    let centered = |ui: &mut Ui, lines: &[String], (cx, cy): (f32, f32), color: Color| {
+        let top = cy - lines.len() as f32 * cell_h / 2.0;
+        for (i, line) in lines.iter().enumerate() {
+            let x = cx - line.chars().count() as f32 * cell_w / 2.0;
+            ui.text(x.round() as i32, (top + i as f32 * cell_h).round() as i32, line, color, false);
+        }
+    };
+    let polyline = |ui: &mut Ui, points: &[(f32, f32)], width: f32, dash: Option<f32>, color: Color| {
+        for pair in points.windows(2) {
+            ui.painter.line(at(pair[0]), at(pair[1]), width, dash, color);
+        }
+    };
+
+    for group in &diagram.groups {
+        let rect = Rect::new((group.x + origin.0) as i32, (group.y + origin.1) as i32, group.w as i32, group.h as i32);
+        ui.painter.fill_rect(rect, colors.group);
+        ui.painter.rect_outline(rect, colors.group_border);
+        ui.text(rect.x + (cell_w * 0.6) as i32, rect.y + (cell_h * 0.1) as i32, &group.title, colors.text, true);
+    }
+    for node in &diagram.nodes {
+        let (outline, extra) = mermaid::outline(node);
+        let shifted: Vec<(f32, f32)> = outline.iter().map(|&p| at(p)).collect();
+        ui.painter.fill_polygon(&shifted, colors.node);
+        let mut closed = outline.clone();
+        closed.push(outline[0]);
+        polyline(ui, &closed, 1.5, None, colors.border);
+        for line in &extra {
+            polyline(ui, line, 1.5, None, colors.border);
+        }
+        centered(ui, &node.lines, at((node.x + node.w / 2.0, node.y + node.h / 2.0)), colors.text);
+    }
+    for edge in &diagram.edges {
+        if edge.stroke == Stroke::Invisible || edge.points.len() < 2 {
+            continue;
+        }
+        let width = if edge.stroke == Stroke::Thick { 3.0 } else { 1.5 };
+        let dash = (edge.stroke == Stroke::Dotted).then_some(cell_w * 0.5);
+        polyline(ui, &edge.points, width, dash, colors.line);
+        let n = edge.points.len();
+        let ends = [(edge.end, edge.points[n - 1], edge.points[n - 2]), (edge.start, edge.points[0], edge.points[1])];
+        for (head, tip, from) in ends {
+            let size = cell_w * 1.1;
+            match head {
+                Head::None => {}
+                Head::Arrow => {
+                    let triangle: Vec<(f32, f32)> = mermaid::arrow_head(tip, from, size).into_iter().map(at).collect();
+                    ui.painter.fill_polygon(&triangle, colors.line);
+                }
+                Head::Circle => {
+                    let (dx, dy) = (tip.0 - from.0, tip.1 - from.1);
+                    let length = (dx * dx + dy * dy).sqrt().max(0.001);
+                    let r = size * 0.35;
+                    let center = (tip.0 - dx / length * r, tip.1 - dy / length * r);
+                    let circle: Vec<(f32, f32)> = (0..16)
+                        .map(|i| {
+                            let a = i as f32 * std::f32::consts::TAU / 16.0;
+                            at((center.0 + r * a.cos(), center.1 + r * a.sin()))
+                        })
+                        .collect();
+                    ui.painter.fill_polygon(&circle, colors.line);
+                }
+                Head::Cross => {
+                    let r = size * 0.35;
+                    let (x, y) = at(tip);
+                    ui.painter.line((x - r, y - r), (x + r, y + r), 2.0, None, colors.line);
+                    ui.painter.line((x - r, y + r), (x + r, y - r), 2.0, None, colors.line);
+                }
+            }
+        }
+        if let Some((lines, x, y)) = &edge.label {
+            let chars = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as f32;
+            let (w, h) = (chars * cell_w + cell_w, lines.len() as f32 * cell_h + cell_h * 0.3);
+            let (cx, cy) = at((*x, *y));
+            ui.painter.fill_rect(Rect::new((cx - w / 2.0) as i32, (cy - h / 2.0) as i32, w as i32, h as i32), colors.label);
+            centered(ui, lines, (cx, cy), colors.text);
+        }
+    }
 }
 
 /// Which text position lies under a pixel in a frame (for mouse clicks).

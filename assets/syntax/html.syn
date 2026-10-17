@@ -5,6 +5,7 @@ name          html
 extensions    html htm xhtml vue svelte
 line-comment  <!--
 block-comment <!-- -->
+media         '<img src="{path}" />'
 indent        2 spaces
 auto-pairs    () [] {} "" '' <>
 

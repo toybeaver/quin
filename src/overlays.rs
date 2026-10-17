@@ -116,7 +116,6 @@ fn prompt_submit(ed: &mut Editor, prompt: Prompt, text: String) {
             }
         }
         PromptKind::SelectRegex => with_regex(ed, &text, select_on_regex),
-        PromptKind::Shell => typed::run_shell(ed, &text),
     }
 }
 
@@ -280,6 +279,16 @@ pub fn open_command_palette(ed: &mut Editor) {
     ed.overlay = Overlay::Picker(Picker::new(PickerKind::Commands, "command", items));
 }
 
+/// The palette with `query` already typed (`:sh` without a command opens it on `sh `).
+pub fn open_command_palette_with(ed: &mut Editor, query: &str) {
+    open_command_palette(ed);
+    if let Overlay::Picker(picker) = &mut ed.overlay {
+        picker.query = query.to_string();
+        picker.filter();
+    }
+    sync_command_arguments(ed);
+}
+
 /// Every typed command and key command, for the palette.
 fn command_items(ed: &Editor) -> Vec<PickerItem> {
     let bindings = ed.keymaps.normal.bindings();
@@ -308,10 +317,55 @@ fn command_items(ed: &Editor) -> Vec<PickerItem> {
 /// Palette commands whose argument is a path, and whether only directories fit.
 const PATH_COMMANDS: &[(&str, bool)] = &[("cd", true), ("open", false), ("write", false)];
 
+/// The shell command typed in the palette (`!ls -l`, `sh ls -l`), with the
+/// byte offset where it starts in the query.
+fn shell_line(query: &str) -> Option<(usize, &str)> {
+    if let Some(rest) = query.strip_prefix('!') {
+        return Some((1, rest));
+    }
+    let (name, rest) = query.split_once(' ')?;
+    (typed::find(name)?.name == "sh").then_some((name.len() + 1, rest))
+}
+
+/// While a shell command is typed, the palette completes its last word:
+/// program names for the first word, paths for the others.
+fn sync_shell_completion(ed: &mut Editor, line_start: usize, line: &str) {
+    let word_start = line.rfind(char::is_whitespace).map(|i| i + 1).unwrap_or(0);
+    let word = &line[word_start..];
+    let start = line_start + word_start;
+    let program = line[..word_start].trim().is_empty() && !word.contains('/');
+    let dir_text = if program { String::new() } else { word.rfind('/').map(|i| word[..=i].to_string()).unwrap_or_default() };
+    let key = if program { format!("sh {start}") } else { format!("sh {start}:{dir_text}") };
+    let Overlay::Picker(picker) = &ed.overlay else { return };
+    if picker.browse.as_deref() == Some(key.as_str()) {
+        return;
+    }
+    let items: Vec<PickerItem> = if program {
+        crate::files::list_executables().into_iter().map(|name| PickerItem::new(name.clone(), "", ItemData::Argument(name))).collect()
+    } else {
+        let dir = if dir_text.is_empty() { ed.cwd.clone() } else { ed.cwd.join(expand_path(&dir_text)) };
+        crate::files::list_dir(&dir)
+            .into_iter()
+            .map(|(name, _)| PickerItem::new(name.clone(), "", ItemData::Argument(format!("{dir_text}{name}"))))
+            .collect()
+    };
+    let Overlay::Picker(picker) = &mut ed.overlay else { return };
+    picker.browse = Some(key);
+    picker.needle_start = start + dir_text.len();
+    picker.selected = 0;
+    picker.set_items(items);
+}
+
 /// While the argument of `cd` or `open` is typed, the palette lists the
-/// entries of the directory typed so far instead of the commands.
+/// entries of the directory typed so far instead of the commands; a shell
+/// command (`!`, `sh`) gets its own completion.
 fn sync_command_arguments(ed: &mut Editor) {
     let Overlay::Picker(picker) = &ed.overlay else { return };
+    if let Some((line_start, line)) = shell_line(&picker.query) {
+        let line = line.to_string();
+        sync_shell_completion(ed, line_start, &line);
+        return;
+    }
     let argument = picker.query.split_once(' ').and_then(|(name, rest)| {
         let command = typed::find(name)?;
         let (_, dirs_only) = PATH_COMMANDS.iter().find(|(c, _)| *c == command.name)?;
@@ -479,6 +533,16 @@ pub fn picker_key(ed: &mut Editor, key: Key) {
             }
         }
         PickerEvent::Choose { item, query, open } => {
+            // A shell command runs as typed; `tab` completes the highlighted word.
+            if kind == PickerKind::Commands
+                && let Some((_, line)) = shell_line(&query)
+            {
+                if !line.trim().is_empty() {
+                    close_picker(ed);
+                    run_palette_text(ed, &query);
+                }
+                return;
+            }
             if kind == PickerKind::Commands && query.trim().parse::<usize>().is_ok() {
                 close_picker(ed);
                 run_palette_text(ed, &query);
@@ -544,6 +608,11 @@ fn close_picker(ed: &mut Editor) {
 fn run_palette_text(ed: &mut Editor, text: &str) {
     let text = text.trim().trim_start_matches(':');
     if text.is_empty() {
+        return;
+    }
+    // The shell gets the command line untouched (quotes included).
+    if let Some((_, line)) = shell_line(text) {
+        typed::run_shell(ed, line.trim());
         return;
     }
     if let Ok(line) = text.parse::<usize>() {

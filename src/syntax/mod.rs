@@ -48,6 +48,9 @@ pub struct StyleAttrs {
     pub grid: bool,
     /// The token is the path of an image to draw below the line.
     pub image: bool,
+    /// Lines inside a region with this scope are the source of a Mermaid
+    /// flowchart, drawn in their place (`render/mermaid.rs`).
+    pub diagram: bool,
 }
 
 #[derive(Debug)]
@@ -94,6 +97,9 @@ pub struct Language {
     pub indent: Option<IndentStyle>,
     /// Characters that auto-close when typed: `( [ { " '`.
     pub auto_pairs: Vec<(char, char)>,
+    /// What a dropped or pasted image becomes in the text, `{path}` standing
+    /// for the image's file name (`media`). Without it, images are refused.
+    pub media: Option<String>,
     /// All rules, flat. Nested rules are referenced by index from their region.
     pub rules: Vec<Rule>,
     /// Indices of the top-level rules, in order.
@@ -166,6 +172,7 @@ const BUILTIN: &[(&str, &str)] = &[
     ("quin", include_str!("../../assets/syntax/quin.syn")),
     ("git-commit", include_str!("../../assets/syntax/git-commit.syn")),
     ("ini", include_str!("../../assets/syntax/ini.syn")),
+    ("mermaid", include_str!("../../assets/syntax/mermaid.syn")),
     ("xml", include_str!("../../assets/syntax/xml.syn")),
     ("haskell", include_str!("../../assets/syntax/haskell.syn")),
     ("ocaml", include_str!("../../assets/syntax/ocaml.syn")),

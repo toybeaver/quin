@@ -12,8 +12,11 @@ extensions    md markdown mdown mkd
 line-comment  <!--
 indent        2 spaces
 auto-pairs    () [] {} "" ** ``
+media         '<img src="{path}" />'
 
 # Fenced code blocks: the language name after ``` picks the embedded syntax.
+# A mermaid block is drawn as a flowchart while the cursor is outside it.
+region code.diagram ^\s*```\s*mermaid\s*$            ^\s*```\s*$   embed=mermaid   0:punctuation.special
 region code.block   ^\s*```\s*([A-Za-z0-9_+-]*).*$   ^\s*```\s*$   embed=1   0:punctuation.special
 region code.block   ^\s*~~~.*$                        ^\s*~~~\s*$   0:punctuation.special
 
@@ -108,6 +111,7 @@ style emphasis            italic
 style strike              strike
 style code                bg=code.background
 style code.block          bg=code.background
+style code.diagram        bg=code.background diagram
 style conceal             conceal
 style link.text           underline
 style list.marker         replace=•

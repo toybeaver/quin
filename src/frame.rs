@@ -45,6 +45,9 @@ pub struct View {
     /// A terminal frame the user scrolled up into the scrollback: stop
     /// following the live screen until a key is sent.
     pub scrolled_back: bool,
+    /// The wheel moved the view: at the next draw the cursor moves into the
+    /// view, instead of the view moving back to the cursor.
+    pub cursor_follows: bool,
     /// A preview frame (the git status buffer's split): no edits here.
     pub readonly: bool,
 }
@@ -73,6 +76,7 @@ impl View {
             cols: 80,
             jumps: Vec::new(),
             jump_index: 0,
+            cursor_follows: false,
             saved_selections: HashMap::new(),
             anim: None,
             cursor_px: None,

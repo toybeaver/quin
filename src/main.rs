@@ -15,6 +15,8 @@ mod history;
 mod images;
 mod install;
 mod keymap;
+mod links;
+mod media;
 mod movement;
 mod overlays;
 mod picker;
@@ -34,14 +36,15 @@ mod welcome;
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use winit::application::ApplicationHandler;
+use winit::data_transfer::TypeHint;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, StartCause, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
+use winit::event_loop::{ActiveEventLoop, AsyncRequestSerial, ControlFlow, DndAction, EventLoop, EventLoopProxy, OwnedDisplayHandle};
 use winit::keyboard::{Key as WinitKey, ModifiersState, NamedKey};
-use winit::window::{Window, WindowId};
+use winit::window::{ImeCapabilities, ImeEnableRequest, ImeRequest, ImeRequestData, Window, WindowAttributes, WindowId};
 
 use crate::editor::{Editor, Mode};
 use crate::keymap::{Key, KeyCode};
@@ -303,11 +306,11 @@ fn wait_for_background(editor: &mut Editor) {
 const FRAME_INTERVAL: std::time::Duration = std::time::Duration::from_millis(16);
 
 fn run_window(editor: Editor) {
-    let event_loop = EventLoop::<()>::with_user_event().build().expect("create event loop");
+    let event_loop = EventLoop::new().expect("create event loop");
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy = event_loop.create_proxy();
-    let mut app = App::new(editor, proxy);
-    if let Err(err) = event_loop.run_app(&mut app) {
+    let app = App::new(editor, proxy);
+    if let Err(err) = event_loop.run_app(app) {
         eprintln!("quin: {err}");
     }
 }
@@ -315,8 +318,8 @@ fn run_window(editor: Editor) {
 struct App {
     editor: Editor,
     font: FontSet,
-    window: Option<Rc<Window>>,
-    surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
+    window: Option<Rc<dyn Window>>,
+    surface: Option<softbuffer::Surface<OwnedDisplayHandle, Rc<dyn Window>>>,
     modifiers: ModifiersState,
     mouse: (i32, i32),
     /// Active mouse drag: the frame and the anchor position.
@@ -340,16 +343,21 @@ struct App {
     /// What was last given to the window, to skip calls that change nothing.
     title: String,
     surface_size: (u32, u32),
+    /// Files or an image dragged over the window: the kind of data to fetch
+    /// on drop, and the frame and line under the pointer.
+    dnd: Option<TypeHint>,
+    dnd_at: Option<(frame::ViewId, usize)>,
+    /// A drop waiting for its data: the request, the kind, where it landed.
+    dropped: Option<(AsyncRequestSerial, TypeHint, frame::ViewId, usize)>,
 }
 
+/// What can be dropped on the window, best first: files, then image data.
+const DROP_KINDS: [TypeHint; 3] =
+    [TypeHint::UriList, TypeHint::Image { extension_hint: Some("png") }, TypeHint::Image { extension_hint: Some("jpg") }];
+
 impl App {
-    fn new(mut editor: Editor, proxy: EventLoopProxy<()>) -> App {
-        let proxy = Mutex::new(proxy);
-        editor.wake = Some(Arc::new(move || {
-            if let Ok(proxy) = proxy.lock() {
-                let _ = proxy.send_event(());
-            }
-        }));
+    fn new(mut editor: Editor, proxy: EventLoopProxy) -> App {
+        editor.wake = Some(Arc::new(move || proxy.wake_up()));
         let font = load_font(&mut editor, 1.0);
         App {
             editor,
@@ -369,12 +377,15 @@ impl App {
             last_frame: std::time::Instant::now(),
             title: String::new(),
             surface_size: (0, 0),
+            dnd: None,
+            dnd_at: None,
+            dropped: None,
         }
     }
 
     fn redraw(&mut self) {
         let (Some(window), Some(surface)) = (&self.window, &mut self.surface) else { return };
-        let size = window.inner_size();
+        let size = window.surface_size();
         let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else { return };
         if self.surface_size != (size.width, size.height) {
             if surface.resize(w, h).is_err() {
@@ -419,7 +430,7 @@ impl App {
     }
 
     /// Things to check after any input: quitting and redrawing.
-    fn after_input(&mut self, event_loop: &ActiveEventLoop) {
+    fn after_input(&mut self, event_loop: &dyn ActiveEventLoop) {
         self.editor.poll_search();
         self.editor.poll_git(false);
         if self.editor.font_dirty {
@@ -430,6 +441,34 @@ impl App {
             event_loop.exit();
         }
         self.request_redraw();
+    }
+
+    /// A drag moved to a pixel: find the frame and line under it and show
+    /// what a drop there would do.
+    fn drag_to(&mut self, x: f64, y: f64) {
+        let (x, y) = (x as i32, y as i32);
+        let at = self.frame_at(x, y).and_then(|(view, rect)| {
+            let pos = render::ui::position_at(&mut self.editor, &self.font, view, rect, x, y)?;
+            Some((view, self.editor.buffers[&self.editor.views[&view].buffer].line_of(pos)))
+        });
+        self.dnd_at = at;
+        let hover = at.and_then(|(view, line)| media::hover(&self.editor, view, line));
+        if hover != self.editor.drop_hover {
+            if let Some(hover) = &hover {
+                self.editor.set_message(hover.message.clone());
+            }
+            self.editor.drop_hover = hover;
+            self.request_redraw();
+        }
+    }
+
+    /// The drag left the window or ended: no more highlight.
+    fn drag_ended(&mut self) {
+        self.dnd = None;
+        if self.editor.drop_hover.take().is_some() {
+            self.editor.message = None;
+            self.request_redraw();
+        }
     }
 
     fn frame_at(&self, x: i32, y: i32) -> Option<(frame::ViewId, Rect)> {
@@ -508,6 +547,15 @@ impl App {
             return;
         }
         let Some(pos) = render::ui::position_at(&mut self.editor, &self.font, view_id, rect, x, y) else { return };
+        // Ctrl+click (Cmd+click on macOS) follows the link there, like `g x`.
+        let link_click = if cfg!(target_os = "macos") { self.modifiers.meta_key() } else { self.modifiers.control_key() };
+        if link_click {
+            self.editor.views.get_mut(&view_id).expect("view").selection = Selection::point(pos);
+            if let Some(command) = commands::find("open_link") {
+                self.editor.run_command(command, commands::Ctx::default());
+            }
+            return;
+        }
         let extend = self.modifiers.shift_key();
         let view = self.editor.views.get_mut(&view_id).expect("view");
         let anchor = if extend { view.selection.primary().anchor } else { pos };
@@ -616,12 +664,13 @@ impl App {
         view.scroll_line = (view.scroll_line as i64 - lines as i64).clamp(0, max as i64) as usize;
         view.anim = None;
         view.scrolled_back = buffer.is_terminal() && view.scroll_line < max;
+        view.cursor_follows = !buffer.is_terminal();
     }
 }
 
-impl ApplicationHandler<()> for App {
+impl ApplicationHandler for App {
     /// The animation timer ran out: draw the next frame.
-    fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
+    fn new_events(&mut self, _event_loop: &dyn ActiveEventLoop, cause: StartCause) {
         if let StartCause::ResumeTimeReached { .. } = cause {
             self.next_frame = None;
             self.request_redraw();
@@ -629,22 +678,24 @@ impl ApplicationHandler<()> for App {
     }
 
     /// Sleep until input arrives, or until the next animation frame is due.
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &dyn ActiveEventLoop) {
         match self.next_frame {
             Some(at) => event_loop.set_control_flow(ControlFlow::WaitUntil(at)),
             None => event_loop.set_control_flow(ControlFlow::Wait),
         }
     }
 
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+    fn can_create_surfaces(&mut self, event_loop: &dyn ActiveEventLoop) {
         if self.window.is_some() {
             return;
         }
-        let attributes = Window::default_attributes().with_title("quin").with_inner_size(LogicalSize::new(1100.0, 750.0));
-        let window = Rc::new(event_loop.create_window(attributes).expect("create window"));
+        let attributes = WindowAttributes::default().with_title("quin").with_surface_size(LogicalSize::new(1100.0, 750.0));
+        let window: Rc<dyn Window> = Rc::from(event_loop.create_window(attributes).expect("create window"));
         // Input methods and compositor-side dead keys deliver text through IME commits.
-        window.set_ime_allowed(true);
-        let context = softbuffer::Context::new(window.clone()).expect("softbuffer context");
+        if let Some(enable) = ImeEnableRequest::new(ImeCapabilities::new(), ImeRequestData::default()) {
+            let _ = window.request_ime_update(ImeRequest::Enable(enable));
+        }
+        let context = softbuffer::Context::new(event_loop.owned_display_handle()).expect("softbuffer context");
         let surface = softbuffer::Surface::new(&context, window.clone()).expect("softbuffer surface");
         self.scale = window.scale_factor();
         self.font = load_font(&mut self.editor, self.scale);
@@ -653,7 +704,7 @@ impl ApplicationHandler<()> for App {
     }
 
     /// Background work woke us up: terminal output or search results.
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {
+    fn proxy_wake_up(&mut self, _event_loop: &dyn ActiveEventLoop) {
         let terminals = self.editor.process_terminals();
         let git = self.editor.poll_git(false);
         let signs = self.editor.signs.poll();
@@ -664,7 +715,7 @@ impl ApplicationHandler<()> for App {
         }
     }
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+    fn window_event(&mut self, event_loop: &dyn ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => {
                 let modified = self.editor.buffers.values().any(|b| b.is_modified());
@@ -676,7 +727,7 @@ impl ApplicationHandler<()> for App {
                     event_loop.exit();
                 }
             }
-            WindowEvent::Resized(_) => self.request_redraw(),
+            WindowEvent::SurfaceResized(_) => self.request_redraw(),
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 self.scale = scale_factor;
                 self.font = load_font(&mut self.editor, scale_factor);
@@ -697,26 +748,62 @@ impl ApplicationHandler<()> for App {
                 self.close_requested = false;
                 self.after_input(event_loop);
             }
-            WindowEvent::CursorMoved { position, .. } => {
+            WindowEvent::PointerMoved { position, .. } => {
                 self.mouse = (position.x as i32, position.y as i32);
                 if self.mouse_moved() {
                     self.request_redraw();
                 }
             }
-            WindowEvent::MouseInput { state, button, .. } => {
-                self.mouse_button(button, state == ElementState::Pressed);
-                self.after_input(event_loop);
+            WindowEvent::PointerButton { state, button, .. } => {
+                if let Some(button) = button.mouse_button() {
+                    self.mouse_button(button, state == ElementState::Pressed);
+                    self.after_input(event_loop);
+                }
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let amount = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y * 3.0,
                     MouseScrollDelta::PixelDelta(p) => p.y as f32 / self.font.cell_h,
+                    _ => 0.0,
                 };
                 let lines = wheel_lines(&mut self.scroll_rest, amount);
                 if lines != 0 {
                     self.scroll(lines);
                     self.request_redraw();
                 }
+            }
+            WindowEvent::DragEntered { id, position } => {
+                let kind = event_loop.data_transfer(id).ok().and_then(|transfer| DROP_KINDS.into_iter().find(|k| transfer.has_type(k)));
+                let actions: &[DndAction] = if kind.is_some() { &[DndAction::Copy] } else { &[] };
+                let _ = event_loop.set_valid_dnd_actions(id, actions);
+                self.dnd = kind;
+                if let (Some(_), Some(position)) = (kind, position) {
+                    self.drag_to(position.x, position.y);
+                }
+            }
+            WindowEvent::DragPosition { position, .. } if self.dnd.is_some() => self.drag_to(position.x, position.y),
+            WindowEvent::DragDropped { id, .. } => {
+                if let (Some(kind), Some((view, line))) = (self.dnd, self.dnd_at)
+                    && let Ok(serial) = event_loop.fetch_data_transfer(id, &kind)
+                {
+                    self.dropped = Some((serial, kind, view, line));
+                }
+                self.drag_ended();
+            }
+            WindowEvent::DragLeft { .. } => self.drag_ended(),
+            WindowEvent::DataTransferReceived { serial, value, .. } => {
+                let Some((_, kind, view, line)) = self.dropped.take_if(|(waiting, ..)| *waiting == serial) else { return };
+                match kind {
+                    TypeHint::UriList => match value.try_as_file_paths() {
+                        Ok(files) => media::drop_files(&mut self.editor, view, line, files),
+                        Err(_) => self.editor.set_error("only local files can be dropped"),
+                    },
+                    _ => match value.try_as_bytes() {
+                        Ok(bytes) => media::drop_image(&mut self.editor, view, line, &bytes),
+                        Err(err) => self.editor.set_error(format!("drop: {err}")),
+                    },
+                }
+                self.after_input(event_loop);
             }
             WindowEvent::RedrawRequested => self.redraw(),
             _ => {}
@@ -742,7 +829,7 @@ pub fn wheel_lines(rest: &mut f32, amount: f32) -> i32 {
 fn translate_key(event: &KeyEvent, modifiers: ModifiersState) -> Option<Key> {
     let ctrl = modifiers.control_key();
     let alt = modifiers.alt_key();
-    let meta = modifiers.super_key();
+    let meta = modifiers.meta_key();
     let mut shift = modifiers.shift_key();
     // What the key actually types, with dead keys composed: on an international
     // layout `'` then `a` is `á` and `'` then space is `'`. The logical key
@@ -773,7 +860,6 @@ fn translate_key(event: &KeyEvent, modifiers: ModifiersState) -> Option<Key> {
             NamedKey::ArrowDown => KeyCode::Down,
             NamedKey::ArrowLeft => KeyCode::Left,
             NamedKey::ArrowRight => KeyCode::Right,
-            NamedKey::Space => KeyCode::Char(' '),
             NamedKey::F1 => KeyCode::F(1),
             NamedKey::F2 => KeyCode::F(2),
             NamedKey::F3 => KeyCode::F(3),

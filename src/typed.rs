@@ -5,7 +5,6 @@ use std::process::{Command as Process, Stdio};
 use crate::commands;
 use crate::editor::{Editor, Mode};
 use crate::overlays;
-use crate::picker::PromptKind;
 
 pub struct TypedCommand {
     pub name: &'static str,
@@ -277,11 +276,12 @@ fn pwd(ed: &mut Editor, _args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn shell_command(command: &str) -> Result<String, String> {
+fn shell_command(command: &str, dir: &std::path::Path) -> Result<String, String> {
     let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
     let output = Process::new(shell)
         .arg(flag)
         .arg(command)
+        .current_dir(dir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -295,7 +295,7 @@ fn shell_command(command: &str) -> Result<String, String> {
 
 /// Run a shell command and show its output in a message.
 pub fn run_shell(ed: &mut Editor, command: &str) {
-    match shell_command(command) {
+    match shell_command(command, &ed.cwd) {
         Ok(out) => ed.set_message(out.trim_end().replace('\n', " | ")),
         Err(err) => ed.set_error(err),
     }
@@ -303,7 +303,7 @@ pub fn run_shell(ed: &mut Editor, command: &str) {
 
 fn sh(ed: &mut Editor, args: &[String]) -> Result<(), String> {
     if args.is_empty() {
-        overlays::open_prompt(ed, PromptKind::Shell, "sh:");
+        overlays::open_command_palette_with(ed, "sh ");
         return Ok(());
     }
     run_shell(ed, &args.join(" "));
@@ -315,10 +315,11 @@ The file tree (`A-e`, `:tree`) is a sidebar buffer listing the working
 directory, in the spirit of oil.nvim. Files open in the frame the tree was
 opened from; the tree stays. Editing the text and then `:write` changes the
 file system: a changed name renames, a new line creates (a trailing `/` makes
-a directory, two spaces of indentation per level nest it), a line moved under
+a directory, four spaces (or a tab) of indentation per level nest it), a line moved under
 another directory moves the entry, a removed line deletes it. `o` on an
 unfolded directory starts the line inside it. Deletes are announced first and
-applied by a second `:write`. Dot-files start hidden;
+applied by a second `:write`. Files dragged onto the tree are copied into
+the highlighted directory. Dot-files start hidden;
 `.` shows and hides them. Git marks: changed files orange, new files green,
 `* ` before directories with changes inside.
 
@@ -428,7 +429,7 @@ typed_commands! {
     "reload", ["rl"], "Reload the file from disk", false => reload;
     "cd", [], "Change the working directory", true => change_directory;
     "pwd", [], "Show the working directory", false => pwd;
-    "sh", ["!"], "Run a shell command and show its output", false => sh;
+    "sh", ["!"], "Run a shell command and show its output (also `!cmd`)", true => sh;
     "help", [], "Show all keybindings and commands", false => help;
     "config", [], "Open the configuration file (config.toml)", false => config;
 }

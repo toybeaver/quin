@@ -2,7 +2,7 @@
 //!
 //! A keymap is a trie: a key either runs a command or opens a sub-map (`g`, `m`,
 //! `space`, ...). The tables at the bottom of this file are the single source of
-//! truth for the default bindings; the README's keybinding list mirrors them.
+//! truth for the default bindings; `:help` is generated from them.
 
 use std::collections::HashMap;
 
@@ -290,6 +290,7 @@ pub const NORMAL_KEYS: &[(&str, &str)] = &[
     ("g p", "goto_previous_buffer"),
     ("g .", "goto_last_modification"),
     ("g f", "goto_file"),
+    ("g x", "open_link"),
     ("g t", "tab_next"),
     ("g T", "tab_prev"),
     // Selections

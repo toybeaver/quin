@@ -99,6 +99,9 @@ pub fn toggle_hidden(ed: &mut Editor) {
     ed.set_message(if shown { "hidden files shown" } else { "hidden files hidden" });
 }
 
+/// Spaces of indentation per directory level.
+const INDENT: usize = 4;
+
 /// The frame of the current tab showing the tree, if any.
 fn tree_view(ed: &Editor) -> Option<ViewId> {
     let tree = ed.tree.as_ref()?;
@@ -125,7 +128,7 @@ pub fn render(ed: &mut Editor) {
     let git = ed.git.state.as_ref();
     let mut text = String::new();
     for entry in &entries {
-        text.push_str(&"  ".repeat(entry.depth));
+        text.push_str(&" ".repeat(entry.depth * INDENT));
         // Directories with a change somewhere inside carry a `* ` marker.
         if entry.is_dir && git.is_some_and(|g| g.dir_changed(&entry.path)) {
             text.push_str("* ");
@@ -165,6 +168,47 @@ fn collect(dir: &Path, depth: usize, expanded: &HashSet<PathBuf>, show_hidden: b
 
 fn file_name(path: &Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+// ---------------------------------------------------------------------------
+// Drag and drop
+// ---------------------------------------------------------------------------
+
+/// Where files dropped on `line` of the tree go: the directory on that line,
+/// the directory holding the file on that line, or the root below the last
+/// line. Also gives the line showing that directory (none for the root), to
+/// highlight it while dragging. Unsaved edits make the lines unreliable:
+/// then nothing can be dropped.
+pub fn drop_dir(ed: &Editor, line: usize) -> Option<(PathBuf, Option<usize>)> {
+    let tree = ed.tree.as_ref()?;
+    if ed.buffers.get(&tree.buffer)?.is_modified() {
+        return None;
+    }
+    let Some(entry) = tree.entries.get(line) else { return Some((tree.root.clone(), None)) };
+    if entry.is_dir {
+        return Some((entry.path.clone(), Some(line)));
+    }
+    // A file: its directory is the closest line above that is one level up.
+    let parent = (0..line).rev().find(|&i| tree.entries[i].is_dir && tree.entries[i].depth + 1 == entry.depth);
+    match parent {
+        Some(i) => Some((tree.entries[i].path.clone(), Some(i))),
+        None => Some((tree.root.clone(), None)),
+    }
+}
+
+/// Unfold `dir` (and the directories above it) and show the tree again, so
+/// that files just put there are visible.
+pub fn reveal(ed: &mut Editor, dir: &Path) {
+    let Some(tree) = &mut ed.tree else { return };
+    let mut current = Some(dir);
+    while let Some(path) = current {
+        if !path.starts_with(&tree.root) || path == tree.root {
+            break;
+        }
+        tree.expanded.insert(path.to_path_buf());
+        current = path.parent();
+    }
+    render(ed);
 }
 
 // ---------------------------------------------------------------------------
@@ -259,8 +303,9 @@ fn parse(root: &Path, text: &str) -> Result<Vec<Entry>, String> {
         if raw.trim().is_empty() {
             continue;
         }
-        let indent = raw.len() - raw.trim_start().len();
-        let depth = indent / 2;
+        // A tab counts as one level, like the four spaces `tab` inserts.
+        let indent: usize = raw.chars().take_while(|c| c.is_whitespace()).map(|c| if c == '\t' { INDENT } else { 1 }).sum();
+        let depth = indent / INDENT;
         let name = raw.trim();
         let name = name.strip_prefix("* ").unwrap_or(name); // the git marker is not part of the name
         let is_dir = name.ends_with('/');
@@ -482,13 +527,13 @@ mod tests {
 
     #[test]
     fn parses_indented_names() {
-        let entries = parse(Path::new("/r"), "* src/\n  main.rs\n  ui/\n    draw.rs\nREADME.md\n").unwrap();
+        let entries = parse(Path::new("/r"), "* src/\n    main.rs\n    ui/\n        draw.rs\nREADME.md\n").unwrap();
         assert_eq!(entries[0], entry("/r/src", true, 0), "the git marker is dropped");
         assert_eq!(entries[1], entry("/r/src/main.rs", false, 1));
         assert_eq!(entries[3], entry("/r/src/ui/draw.rs", false, 2));
         assert_eq!(entries[4], entry("/r/README.md", false, 0));
-        assert!(parse(Path::new("/r"), "a.rs\n  b.rs\n").is_err(), "a file cannot have children");
-        assert!(parse(Path::new("/r"), "    deep\n").is_err());
+        assert!(parse(Path::new("/r"), "a.rs\n    b.rs\n").is_err(), "a file cannot have children");
+        assert!(parse(Path::new("/r"), "        deep\n").is_err());
         assert!(parse(Path::new("/r"), "a/b\n").is_err());
     }
 

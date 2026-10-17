@@ -156,6 +156,75 @@ pub fn list_dir(dir: &Path) -> Vec<(String, bool)> {
     out
 }
 
+/// Open a URL or a file with the system's default program, without waiting
+/// for it (a thread reaps the process when it ends).
+pub fn open_with_system(target: &str) -> Result<(), String> {
+    let mut command = if cfg!(target_os = "macos") {
+        std::process::Command::new("open")
+    } else if cfg!(windows) {
+        let mut command = std::process::Command::new("cmd");
+        command.args(["/C", "start", ""]);
+        command
+    } else {
+        std::process::Command::new("xdg-open")
+    };
+    let mut child = command
+        .arg(target)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("cannot open {target}: {e}"))?;
+    std::thread::spawn(move || child.wait());
+    Ok(())
+}
+
+/// Copy a directory and everything inside it to `to` (which must not exist).
+pub fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let target = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), &target)?;
+        }
+    }
+    Ok(())
+}
+
+/// Names of the programs in the directories of `PATH`, sorted, for the
+/// completion of `:sh` commands.
+pub fn list_executables() -> Vec<String> {
+    let Some(path) = std::env::var_os("PATH") else { return Vec::new() };
+    let mut names = Vec::new();
+    for dir in std::env::split_paths(&path) {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        for entry in entries.flatten() {
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else { continue };
+            if is_executable(&entry.path()) {
+                names.push(name);
+            }
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
+}
+
+#[cfg(unix)]
+fn is_executable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &Path) -> bool {
+    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    matches!(extension.as_str(), "exe" | "bat" | "cmd" | "com") && path.is_file()
+}
+
 /// Search `files` (relative to `root`) for a regex on a background thread.
 /// Hits arrive on the returned channel, which closes when the search is over;
 /// `wake` is called when new hits are waiting. Setting `cancel` stops the
